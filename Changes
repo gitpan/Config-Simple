@@ -1,5 +1,8 @@
  Change log for Config::Simple
-  $Date: 2003/03/07 03:08:59 $
+  $Date: 2003/03/07 03:20:37 $
+
+4.43
+    * Minor fix: forgot to remove "use diagnostics" line.
 
 4.42
     * bug fix in get_block() as well as set_block() method
@@ -31,4 +34,4 @@
     * much improved write()
 
 
-$Revision: 3.11 $
+$Revision: 3.12 $

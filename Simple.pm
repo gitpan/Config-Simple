@@ -1,17 +1,17 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.29 2003/03/07 03:08:59 sherzodr Exp $
+# $Id: Simple.pm,v 3.30 2003/03/07 03:20:37 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
 # it's too slow for production environment
-use diagnostics;
+#use diagnostics;
 use Carp;
 use Fcntl (':DEFAULT', ':flock');
 use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 
-$VERSION   = '4.42';
+$VERSION   = '4.43';
 $DEFAULTNS = 'default';
 
 sub import {

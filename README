@@ -436,6 +436,33 @@ METHODS
         Additional arguments will be passed to import_names(). Returns
         underlying Config::Simple object
 
+    get_block($name)
+        is mostly used for accessing blocks in ini-styled configuration
+        files. Returns a hashref of all the key/value pairs of a given
+        block. Also supported by param() method with the help of "-block"
+        option:
+
+          $hash = $cfg->get_block('Project');
+          # is the same as saying:
+          $hash = $cfg->param(-block=>'Project');
+
+    set_block($name, $values)
+        used in assigning contents to a block in ini-styled configuration
+        files. $name should be the name of a [block], and $values is assumed
+        to be a hashref mapping key/value pairs. Also supported by param()
+        method with the help of "-block" and "-value" (or "-values")
+        options:
+
+          $cfg->set_block('Project', {Count=>3, 'Multiple Column' => 20});
+          # is the same as:
+          $cfg->param(-block=>'Project', -value=>{Count=>3, 'Multiple Column' => 20});
+
+        Warning: all the contents of a block, if previously existed will be
+        wiped out. If you want to set specific key/value pairs, use explicit
+        method:
+
+          $cfg->param('Project.Count', 3);
+
     as_string()
         - returns the configuration file as a chunk of text. It is the same
         text used by write() and save() to store the new configuration file
@@ -461,6 +488,8 @@ METHODS
         operations.
 
 TODO
+    *   Support for lines with continuation character, '\'.
+
     *   Retaining comments while writing the configuration files back and/or
         methods for manipulating comments. Everyone loves comments!
 
@@ -473,7 +502,7 @@ BUGS
 
 CREDITS
     Michael Caldwell (mjc@mjcnet.com)
-        whitespace support, "-lc" switch
+        whitespace support, "-lc" switch and for various bug fixes
 
     Scott Weinstein (Scott.Weinstein@lazard.com)
         bug fix in TIEHASH
