@@ -6,6 +6,11 @@ Revision history for Perl extension Config::Simple.
 
 0.02  Friday, October 19, 2001
 	- param_hash() has been introduced
+
 0.03  Monday, October 22, 2001
 	- error on package declaration has been fixed
 	- FileHandle usage was updated in 'new()'
+
+0.04   Tuesday, October 23, 2001 
+	- warning due to a missing test.pl file in MANIFEST fixed
+
