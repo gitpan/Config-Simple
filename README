@@ -111,15 +111,31 @@ ABOUT CONFIGURATION FILES
     comment should reside on its own line
 
 PROGRAMMING STYLE
+    Most of the programs simply need to be able to read settings from a
+    configuration file and assign them to a hash. If that's all you need,
+    you can simply use its import_from() - class method with the name of the
+    configuration file and a reference to an existing (possibly empty) hash:
+
+      Config::Simple->import_from('myconf.cfg', \%Config);
+  
+    Now your hash %Config holds all the configuration file's key/value
+    pairs. Keys of a hash are variable names inside your configuration file,
+    and values are their respective values. If "myconf.cfg" was a
+    traditional ini-file, keys of the hash consist of block name and
+    variable delimited with a dot, such as "block.var".
+
+    If that's all you need, you can stop right here. Otherwise, read on.
+    There is much more Config::Simple offers.
+
   READING THE CONFIGURATION FILE
 
-    To read the existing configuration file, simply pass its name to the
-    constructor new() while initializing the object:
+    To be able to use more features of the library, you will need to use its
+    object interface:
 
       $cfg = new Config::Simple('app.cfg');
 
     The above line reads and parses the configuration file accordingly. It
-    tries to guess which syntax is used by parsing the file to
+    tries to guess which syntax is used by passing the file to
     guess_syntax() method. Alternatively, you can create an empty object,
     and only then read the configuration file in:
 
@@ -133,8 +149,6 @@ PROGRAMMING STYLE
     less likely), you can try to debug by using its guess_syntax() method.
     It expects file handle for a configuration file and returns the name of
     a syntax. Return value is one of "ini", "simple" or "http".
-
-      $cfg = new Config::Simple();
 
       open(FH, "app.cfg");
       printf("This file uses '%s' syntax\n", $cfg->guess_syntax(\*FH));
@@ -173,15 +187,15 @@ PROGRAMMING STYLE
     If you know what you're doing, you can also have an option of importing
     all the names from the configuration file into your current name space
     as global variables. All the block/key names will be uppercased and will
-    be converted to Perl's valid variable names. All the dots (block-key
-    separator) and other '\W' characters will be substituted with underscore
-    '_'. This can be achieved with the help of "import_names()" method:
+    be converted to Perl's valid variable names; that is, all the dots
+    (block-key separator) and other '\W' characters will be substituted with
+    underscore '_':
 
       $cfg = new Config::Simple('app.cfg');
       $cfg->import_names();
 
       # or, with a single line:
-      # Config::Simple->new('app.cfg')->import_names();
+      Config::Simple->new('app.cfg')->import_names();
   
       print STDERR "Debugging mode is on" if $DEBUG_MODE;
 
@@ -190,11 +204,8 @@ PROGRAMMING STYLE
     $cfg->param('debug.mode');
 
     "import_names()" by default imports the values to its caller's name
-    space. If you're running under strict mode, you will also have to
-    declare all those variables in your program with either vars.pm or
-    our(). Optionally, you can specify where to import the values by passing
-    the name of the name space as the first argument. Thus you do not have
-    to pre declare the variables in your code anymore. It also prevents
+    space. Optionally, you can specify where to import the values by passing
+    the name of the name space as the first argument. It also prevents
     potential name collisions:
 
       Config::Simple->new('app.cfg')->import_names('CFG');
@@ -205,18 +216,27 @@ PROGRAMMING STYLE
     supports import_from() - class method, which is called with the name of
     the configuration file. It will call import_names() for you:
 
-      Config::Simple->import_from('app.cfg') or die Config::Simple->error();
+      Config::Simple->import_from('app.cfg');
 
-    Voila! No need for calling new(). All the additional arguments passed to
-    import_from() will be passed as is to import_names():
+    The above line imports all the variables into the caller's name space.
+    It's similar to calling import_names() on an object. If you pass a
+    string as the second argument, it will treat it as the alternative name
+    space to import the names into. As we already showed in the very first
+    example, you can also pass a reference to an existing hash as the second
+    argument. In this case, that hash will be modified with the values of
+    the configuration file.
 
+      # import into $CFG name space:
       Config::Simple->import_from('app.cfg', 'CFG');
 
-    The above line imports all the values to 'CFG' name space. import_from()
-    returns underlying Config::Simple object, which you may not even need
-    anymore:
+      # import into %Config hash:
+      Config::Simple->import_from('app.cfg', \%Config);
 
-      $cfg = Config::Simple->import_from('app.cfg');
+    The above line imports all the values to 'CFG' name space. import_from()
+    returns underlying Config::Simple object (which you may not even need
+    anymore):
+
+      $cfg = Config::Simple->import_from('app.cfg', \my %Config);
       $cfg->write('app.cfg.bak');
 
   UPDATING THE VALUES
@@ -288,7 +308,8 @@ PROGRAMMING STYLE
 
     This creates the a file "new.cfg" with the following content:
 
-      ; Config::Simple 4.1
+      ; Config::Simple 4.43
+      ; Sat Mar  8 00:32:49 2003
 
       [site]
       title=sherzodR "The Geek"
@@ -388,11 +409,15 @@ MISCELLANEOUS
 
       # following new always returns true:
       $cfg = new Config::Simple();
+
       # read() can fail:
       $cfg->read('app.cfg') or die $cfg->error();
 
       # following new() can fail:
       $cfg = new Config::Simple('app.cfg') or die Config::Simple->error();
+
+      # import_from() calls read(), so it can fail:
+      Config::Simple->import_from('app.cfg', \%Config) or die Config::Simple->error();
 
       # write() may fail:
       $cfg->write() or die $cfg->error();
@@ -481,7 +506,7 @@ METHODS
         Data::Dumper. Argument, if passed, will be treated as the name of
         the file object should be dumped in. The second argument specifies
         amount of indentation as documented in Data::Dumper manual. Default
-        indentation is 2.
+        indent size is 2.
 
     error()
         - returns the last error message from read/write or import_*

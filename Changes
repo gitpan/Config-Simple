@@ -1,5 +1,10 @@
  Change log for Config::Simple
-  $Date: 2003/03/07 03:20:37 $
+  $Date: 2003/03/08 08:08:51 $
+
+
+4.44
+    * import_from() class method now supports second argument
+      to be a reference to an existing hash
 
 4.43
     * Minor fix: forgot to remove "use diagnostics" line.
@@ -34,4 +39,4 @@
     * much improved write()
 
 
-$Revision: 3.12 $
+$Revision: 3.13 $

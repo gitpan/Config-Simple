@@ -10,7 +10,7 @@ use strict;
 use Test;
 use File::Spec;
 BEGIN { 
-  plan tests => 6;
+  plan tests => 8;
 };
 require Config::Simple;
 ok(1);
@@ -20,8 +20,18 @@ ok(1);
 # its man page ( perldoc Test::More ) for help writing this test script.
 
 my $ini_file = File::Spec->catfile('t', 'project.ini');
+
 ok(Config::Simple->import_from($ini_file, 'CFG'));
+
 ok($CFG::PROJECT_COUNT == 3);
 ok($CFG::PROJECT_2_NAME eq 'MPFCU');
 ok(ref($CFG::PROJECT_100_NAMES) eq 'ARRAY' );
 ok($CFG::PROJECT_100_NAMES->[0] eq 'First Name');
+
+
+
+# testing import_into():
+Config::Simple->import_from($ini_file, \my %Config);
+ok($Config{'Project.Count'} == 3);
+ok($Config{'Project\100.Names'}->[0] eq 'First Name');
+

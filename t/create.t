@@ -34,3 +34,6 @@ $cfg->param("site.title", 'sherzodR "The Geek"');
 ok($cfg->write($ini_file));
 ok( -e $ini_file );
 
+unlink ( $ini_file );
+
+
