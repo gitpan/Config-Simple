@@ -14,3 +14,6 @@ Revision history for Perl extension Config::Simple.
 0.04   Tuesday, October 23, 2001 
 	- warning due to a missing test.pl file in MANIFEST fixed
 
+0.05   Tuesday, October 23, 2001
+	- $VERSION variable didn't matc. Fixed!
+

@@ -5,7 +5,7 @@ use strict;
 use FileHandle;
 use Carp;
 
-our $VERSION = '0.02';
+our $VERSION = '0.05';
 
 sub new {
     my $class = shift;
