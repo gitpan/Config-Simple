@@ -1,14 +1,23 @@
- Change log for Config::Simple 
+ Change log for Config::Simple
+  Sunday, February 23, 2003
+
+4.4
+    * import_names() method to import values as global variables
+      to the caller's name space.
+    * import_from() class method to import values from a file
+      instead of from an object
+    * comments on the as_string() will have last update date.
+      This applies to write() and save() methods as well.
 
 4.3
-   * Better exception handling through Config::Simple->error()
+    * Better exception handling through Config::Simple->error()
 4.2
-   * Using Fcntl.pm for more portable O_* values
+    * Using Fcntl.pm for more portable O_* values
 4.0
-  * Support for multiple values using comma (,);
-  * Smart support for multiple configuration file syntaxes including 
-    ini-files, simple config. as well as http-like style
-  * quoting key values is optional
-  * -lc switch to disable case sensitive parsing of blocknames and keys
-  * much improved write()
+    * Support for multiple values using comma (,);
+    * Smart support for multiple configuration file syntax including
+      ini-files, simple config. as well as http-like style
+    * quoting key values is optional
+    * -lc switch to disable case sensitive parsing of block names and keys
+    * much improved write()
 

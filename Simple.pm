@@ -1,6 +1,6 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.22 2003/02/21 23:07:31 sherzodr Exp $
+# $Id: Simple.pm,v 3.25 2003/02/23 21:15:22 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
@@ -11,7 +11,7 @@ use Fcntl (':DEFAULT', ':flock');
 use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 
-$VERSION   = '4.3';
+$VERSION   = '4.4';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -540,9 +540,11 @@ sub as_string {
 
   my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is not defined";
   my $sub_syntax = $self->{_SUB_SYNTAX} || '';
+  my $currtime = localtime;
   my $STRING = undef;
   if ( $syntax eq 'ini' ) {
-    $STRING .= "; Config::Simple $VERSION\n\n";
+    $STRING .= "; Config::Simple $VERSION\n";
+    $STRING .= "; $currtime\n\n";
     while ( my ($block_name, $key_values) = each %{$self->{_DATA}} ) {
       unless ( $sub_syntax eq 'simple-ini' ) {
         $STRING .= sprintf("[%s]\n", $block_name);
@@ -554,13 +556,15 @@ sub as_string {
       $STRING .= "\n";
     }
   } elsif ( $syntax eq 'http' ) {
-    $STRING .= "# Config::Simple $VERSION\n\n";
+    $STRING .= "# Config::Simple $VERSION\n";
+    $STRING .= "# $currtime\n\n";
     while ( my ($key, $value) = each %{$self->{_DATA}} ) {
       my $values = join (WRITE_DELIM, map { quote_values($_) } @$value) or next;
       $STRING .= sprintf("%s: %s\n", $key, $values);
     }
   } elsif ( $syntax eq 'simple' ) {
-    $STRING .= "# Config::Simple $VERSION\n\n";
+    $STRING .= "# Config::Simple $VERSION\n";
+    $STRING .= "# $currtime\n\n";
     while ( my ($key, $value) = each %{$self->{_DATA}} ) {
       my $values = join (WRITE_DELIM, map { quote_values($_) } @$value) or next;
       $STRING .= sprintf("%s %s\n", $key, $values);
@@ -592,6 +596,47 @@ sub quote_values {
   return $string;
 }
 
+
+
+# imports names into the caller's namespace as global variables.
+# I'm not sure how secure this method is. Hopefully someone will
+# take a look at it for me
+sub import_names {
+  my ($self, $namespace) = @_;
+
+  unless ( defined $namespace ) {    
+    $namespace = (caller)[0];
+  }
+  if ( $namespace eq 'Config::Simple') {
+    croak "You cannot import into 'Config::Simple' package";
+  }
+
+  my %vars = $self->vars();
+  no strict 'refs';
+  while ( my ($k, $v) = each %vars ) {
+    $k =~ s/\W/_/g;
+    ${$namespace . '::' . uc($k)} = $v;
+  }
+}
+
+
+
+# imports names from a file. Compare with import_names.
+sub import_from {
+  my ($class, $file, $namespace) = @_;
+
+  if ( ref($class) ) {
+    croak "import_from() is not an object method.";
+  }
+
+  unless ( defined $namespace ) {
+    $namespace = (caller)[0];
+  }
+  
+  my $cfg = $class->new($file);
+  $cfg->import_names($namespace);
+  return $cfg;
+}
 
 
 
@@ -882,6 +927,47 @@ If you call vars() in scalar context, you will end up with a reference to a hash
   my $Config = $cfg->vars();
   print "Username: $Config->{User}";
 
+If you know what you're doing, you can also have an option of importing all the
+names from the configuration file into your current name space as global variables.
+All the block/key names will be uppercased and will be converted to Perl's valid
+variable names. All the dots (block-key separator) and other '\W' characters will be 
+substituted with underscore '_'. This can be achieved with the help of C<import_names()> method:
+
+  $cfg = new Config::Simple('app.cfg');
+  $cfg->import_names();
+
+  # or, with a single line:
+  # Config::Simple->new('app.cfg')->import_names();
+  
+  print STDERR "Debugging mode is on" if $DEBUG_MODE;
+
+In the above example, if there was a variable 'mode' under '[debug]' block,
+it will be now accessible via $DEBUG_MODE, as opposed to $cfg->param('debug.mode');
+
+C<import_names()> by default imports the values to its caller's name space, which may be
+all you need. Optionally, you can specify where to import by passing the name of the name space
+as the first argument. It may be useful if you don't want any name collisions:
+
+  Config::Simple->new('app.cfg')->import_names('CFG');
+  print STDERR "Debugging mode is on" if $CFG::DEBUG_MODE;
+
+If all you want is to import values from a configuration file, the above syntax may still
+seem longer than necessary. That's why Config::Simple supports import_from() - class method,
+which is called with the name of the configuration file. It will call import_names() for you:
+  
+  Config::Simple->import_from('app.cfg') or die Config::Simple->error();
+
+Voila! No need for calling new(). All the additional arguments passed to import_from()
+will be passed as is to import_names():
+
+  Config::Simple->import_from('app.cfg', 'CFG');
+
+The above line imports all the values to 'CFG' name space. import_from() returns
+underlying Config::Simple object, which you may not even need anymore:
+
+  $cfg = Config::Simple->import_from('app.cfg');
+  $cfg->write('app.cfg.bak');
+
 =head2 UPDATING THE VALUES
 
 Configuration values, once read into Config::Simple, can be updated from within
@@ -995,7 +1081,7 @@ From that point on, you can use the variable as an ordinary Perl hash.
   $Config{User} = 'sherzodR';
 
 
-To access the method provided in OO styntax, you need to get underlying Config::Simple
+To access the method provided in OO syntax, you need to get underlying Config::Simple
 object. You can do so with tied() function:
   
   tied(%Config)->write();
@@ -1035,7 +1121,7 @@ value will be escaped with a backslash.
 
 Config::Simple doesn't believe in dying that easily (unless you insult it using wrong syntax).
 It leaves the decision to the programmer implementing the library. You can use its error() -
-class method to access underliying error message. Methods that require you to check
+class method to access underlying error message. Methods that require you to check
 for their return values are read() and write(). If you pass filename to new(), you will
 need to check its return value as well. They return any true value indicating success,
 undef otherwise:
@@ -1051,21 +1137,74 @@ undef otherwise:
   # write() may fail:
   $cfg->write() or die $cfg->error();
 
-=head2 OTHER METHODS
+=head1 METHODS
 
 =over 4
 
+=item new()
+
+- constructor. Optionally accepts several arguments. Returns Config::Simple object.
+Supported arguments are B<filename>, B<syntax>, B<autosave>. If there is a single
+argument, will be treated as the name of the configuration.
+
+
+=item read()
+
+- accepts name  of the configuration file to parse. Before that, it tries to 
+guess the syntax of the file by calling guess_syntax() method. Then calls either of
+parse_ini_file(), parse_cfg_file() or parse_http_file() accordingly. If the name
+of the file is provided to the constructor - new(), there is no need to call read().
+
+=item param([$name], [$value])
+
+- used for accessing and updating configuration variables. If used with no arguments
+returns all the available names from the configuration file.
+
+=item delete($name)
+
+- deletes a variable from a configuration file. $name has the same meaning and syntax
+as it does in param()
+
+=item vars()
+
+- depending on the context used, returns all the values available in the configuration
+file either as a hash or a reference to a hash
+
+=item import_names()
+
+- imports all the names from the configuration file to the caller's name space. Optional
+argument, if passed, will be treated as the name space variables to be imported into.
+All the names will be uppercased. Non-alphanumeric strings in the values will be underscored
+
+=item import_from()
+
+- class method. Accepts the name of the file to import names from. Additional arguments
+will be passed to import_names(). Returns underlying Config::Simple object
+
 =item as_string()
 
-converts in-memory configuration file into a string, which can be then written
-into a file. Used by write().
+- returns the configuration file as a chunk of text. It is the same text used by
+write() and save() to store the new configuration file back to file.
+
+=item write()
+
+- writes the configuration file into disk. Argument, if passed, will be treated
+as the name of the file configuration variables should be saved in.
+
+=item save()
+
+- same as write().
 
 =item dump()
 
-for debugging only. Returns string representation of the in-memory object. Uses
-Data::Dumper. 
+- for debugging only. Dumps the whole Config::Simple object using Data::Dumper.
+Argument, if passed, will be treated as the name of the file object should be dumped in.
+The second argument specifies amount of indentation as documented in L<Data::Dumper|Data::Dumper>
+manual. Default indentation is 2.
 
 =item error()
+
+- returns the last error message from read/write or import_* operations.
 
 =back
 
@@ -1103,7 +1242,11 @@ bug fix in TIEHASH
 
 =item Ruslan U. Zakirov <cubic@wr.miee.ru>
 
-Default name space suggestion and patch
+default name space suggestion and patch
+
+=item Hirosi Taguti
+
+import_names() and import_from() idea.
 
 =back
 

@@ -1,10 +1,11 @@
 Changes
-MANIFEST
+MANIFEST			This list of files
 MANIFEST.SKIP
 Makefile.PL
 README
 Simple.pm
 t/create.t
+t/import.t
 t/ini.t
 t/project.ini
 t/read-rv.t
