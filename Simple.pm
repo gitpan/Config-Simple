@@ -1,5 +1,6 @@
 package Config::Simple;
-# $Id: Simple.pm,v 3.9 2002/12/17 16:29:14 sherzodr Exp $
+
+# $Id: Simple.pm,v 3.10 2002/12/17 16:35:08 sherzodr Exp $
 
 use strict;
 use Carp 'croak';
@@ -15,7 +16,7 @@ sub import {
     }
 }
 
-($VERSION) = '$Revision: 3.9 $' =~ m/Revision:\s*(\S+)/;
+($VERSION) = '$Revision: 3.10 $' =~ m/Revision:\s*(\S+)/;
 
 # Default namespace as suggested by Ruslan U. Zakirov <cubic@wr.miee.ru>
 $DEFAULTNS = "default";
@@ -535,7 +536,7 @@ help you with it.
 
 =head1 REVISION
 
-This manual refers to $Revision: 3.9 $
+This manual refers to $Revision: 3.10 $
 
 =head1 CONFIGURATION FILE SYNTAX
 

@@ -1,11 +1,11 @@
 
-# $Id: default.t,v 2.9 2002/12/17 16:27:20 sherzodr Exp $
+# $Id: default.t,v 2.10 2002/12/17 16:34:44 sherzodr Exp $
 use strict;
 use Test;
 use Config::Simple;
 use File::Spec;
 
-BEGIN { plan tests => 10 }
+BEGIN { plan tests => 11 }
 
 ok(1);
 
@@ -34,6 +34,6 @@ my $author_block = $cfg->param(-block=>'author');
 ok($author_block->{l_name}, "Ruzmetov");
 ok($author_block->{nick}, $cfg->param('author.nick') );
 
-die $cfg->block();
+ok($cfg->block(),2);
 
 
