@@ -1,6 +1,6 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.44 2003/04/16 16:50:10 sherzodr Exp $
+# $Id: Simple.pm,v 3.46 2003/04/17 21:03:15 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
@@ -12,13 +12,13 @@ use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 use AutoLoader 'AUTOLOAD';
 
-$VERSION   = '4.51';
+$VERSION   = '4.52';
 $DEFAULTNS = 'default';
 
 sub import {
   for ( @_ ) {
-    $LC     = ($_ eq '-lc')     and next;
-    $USEQQ  = ($_ eq '-strict') and next;    
+    if ( $_ eq '-lc'      ) { $LC = 1;    next; }
+    if ( $_ eq '-strict'  ) { $USEQQ = 1; next; }
   }
 }
 
@@ -358,20 +358,20 @@ sub param {
     '-block',  undef,
     @_
   };
-  if ( $args->{'-name'} && ($args->{'-value'} || $args->{'-values'}) ) {
+  if ( defined $args->{'-name'} && (defined($args->{'-value'}) || defined($args->{'-values'})) ) {
     # OBJ->param(-name=>'..', -value=>'...') syntax:
     return $self->set_param($args->{'-name'}, $args->{'-value'}||$args->{'-values'});
 
   }
-  if ( $args->{'-name'} ) {
+  if ( defined($args->{'-name'}) ) {
     # OBJ->param(-name=>'...') syntax:
     return $self->get_param($args->{'-name'});
      
   }
-  if ( $args->{'-block'} && ($args->{'-values'} || $args->{'-value'}) ) {
+  if ( defined($args->{'-block'}) && (defined($args->{'-values'}) || defined($args->{'-value'})) ) {
     return $self->set_block($args->{'-block'}, $args->{'-values'}||$args->{'-value'});
   }
-  if ( $args->{'-block'} ) {
+  if ( defined($args->{'-block'}) ) {
     return $self->get_block($args->{'-block'});
   }
     
@@ -669,7 +669,7 @@ you with it.
 
 Config::Simple is a class representing configuration file object. 
 It supports several configuration file syntax and tries to identify the 
-file syntax automaticly. Library supports parsing, updating and creating 
+file syntax automatically. Library supports parsing, updating and creating 
 configuration files.
 
 =head1 ABOUT CONFIGURATION FILES
@@ -1062,7 +1062,7 @@ undef otherwise:
   $cfg->write() or die $cfg->error();
 
   # tie() may fail, since it calls new() with a filename
-  tie %Config, "Config::Simple", 'app.cfg' or die Confi::Simple->error();
+  tie %Config, "Config::Simple", 'app.cfg' or die Config::Simple->error();
 
 =head1 METHODS
 
@@ -1117,7 +1117,7 @@ All the names will be uppercased. Non-alphanumeric strings in the values will be
 
 - class method. If the second argument is a reference to an existing hash, it will
 load all the configuration contents into that hash. If the second argument is a 
-string, it will be treated as the namespace variables should be imported into, just
+string, it will be treated as the name space variables should be imported into, just
 like import_names() does.
 
 =item get_block($name)
@@ -1185,6 +1185,10 @@ is restricted and quite possibly buggy.
 
 Retaining comments while writing the configuration files back and/or methods for
 manipulating comments. Everyone loves comments!
+
+=item *
+
+Retain the order of the blocks and other variables in the configuration files.
 
 =back
 

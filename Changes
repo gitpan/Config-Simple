@@ -1,5 +1,10 @@
  Change log for Config::Simple
-  $Date: 2003/04/16 16:50:10 $
+  $Date: 2003/04/17 21:03:15 $
+
+4.52
+    * '-strict' and '-lc' switches, if used together were buggy
+    * if either -name or -value pased to param() was 0 (zero),
+      it used to fail.
 
 4.51
     * t/is_modified.cfg was missing from the MANIFEST
@@ -75,4 +80,4 @@
     * much improved write()
 
 
-$Revision: 3.23 $
+$Revision: 3.24 $
