@@ -1,149 +1,172 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.10 2002/12/17 16:35:08 sherzodr Exp $
+# $Id: Simple.pm,v 3.14 2003/02/20 10:56:27 sherzodr Exp $
 
 use strict;
-use Carp 'croak';
-use Fcntl (':DEFAULT', ':flock');
-use Text::ParseWords;
+use Carp;
+use Text::ParseWords 'parse_line';
+use vars qw($VERSION $DEFAULTNS $LC);
 
-use vars qw($VERSION $DEFAULTNS $USEQQ);
+($VERSION) = '$Revision: 3.14 $' =~ m/Revision:\s*(\S+)/;
+$DEFAULTNS = 'default';
 
 sub import {
-    (undef) = shift;
-    for ( @_ ) {
-        $USEQQ = ($_ eq '-strict') || next;
-    }
+  for ( @_ ) {
+    $LC = ($_ eq '-lc')     and next;
+  }
 }
 
-($VERSION) = '$Revision: 3.10 $' =~ m/Revision:\s*(\S+)/;
 
-# Default namespace as suggested by Ruslan U. Zakirov <cubic@wr.miee.ru>
-$DEFAULTNS = "default";
+# fcntl constants
+sub O_APPEND   () { return 1024   }
+sub O_CREAT    () { return 64     }
+sub O_EXCL     () { return 128    }
+sub O_RDWR     () { return 2      }
+sub O_TRUNC    () { return 512    }
+sub O_WRONLY   () { return 1      }
+sub LOCK_EX    () { return 2      }
+sub LOCK_SH    () { return 1      }
+sub LOCK_UN    () { return 8      }
+
+sub DELIM      () { return '\s*,\s*' }
+sub DEBUG      () { 0 }
+
 
 sub new {
-    my $class = shift;
-    $class = ref($class) || $class;
+  my $class = shift;
+  $class = ref($class) || $class;
 
-    my $self = {
-        _options => {
-            encoder => sub { my($string)=@_; $string=~s/\n/\\n/g; return $string },
-            decoder => sub { my($string)=@_; $string=~s/\\n/\n/g; return $string },
-            autosave => 0,
-            filename => 0,
-        },
-        _data    => { },
-        _status  => 0,
+  my $self = {
+    _FILE_HANDLE    => undef,
+    _FILE_NAME      => undef,
+    _STACK          => [],
+    _DATA           => {},
+    _SYNTAX         => undef,
+    _SUB_SYNTAX     => undef,
+    _ARGS           => {}
+  };
 
-    };
 
-    # If there's only one argument, consider it the filename
-    if ( @_ == 1 ) {
-        $self->{_options}->{filename} = $_[0];
+  bless ($self, $class);
+  $self->_init(@_);
 
-    } else {
-        # if there're more than one arguments, consider them as key/value pairs
-        $self->{_options} = {
-            encoder => sub { my($string)=@_; $string=~s/\n/\\n/g; return $string },
-            decoder => sub { my($string)=@_; $string=~s/\\n/\n/g; return $string },
-            autosave => 0,
-            filename => 0,
-            @_, };
-    }
-
-    if ( $self->{_options}->{autosave} and ! $self->{_options}->{filename} ) {
-        croak "Cannot create autosave without a file name";
-    }
-    bless($self, $class);
-
-    if ( $self->{_options}->{filename} ) {
-        $self->read($self->{_options}->{filename});
-    }
-    return $self;
+  return $self;
 }
+
 
 
 
 sub DESTROY {
-    my $self = shift;
+  my $self = shift;
 
-    if ( $self->{_options}->{autosave} && $self->{_options}->{filename}) {
-        $self->write();
-    }
-
-    if ( defined $self->{_fh} ) {
-        my $fh = $self->{_fh};
-        unless ( close ( $fh ) ) {
-            croak "Couldn't close $self->{_options}->{filename}: $!";
-        }
-    }
+  if ( $self->autosave() ) {
+    $self->write();
+  }
 }
 
+
+
+
+sub _init {
+  my $self = shift;
+
+  if ( @_ == 1 ) {
+    return $self->read($_[0]);
+
+  } elsif ( @_ % 2 ) {
+    croak "new(): Illegal arguments detected";
+
+  } else {
+    $self->{_ARGS} = { @_ };
+
+  }
+
+  if ( exists ($self->{_ARGS}->{filename}) ) {
+    return $self->read( $self->{_ARGS}->{filename} );
+  }
+}
+
+
+
+sub autosave {
+  my ($self, $bool) = @_;
+
+  if ( defined $bool ) {
+    $self->{_ARGS}->{autosave} = $bool;
+  }
+
+  return $self->{_ARGS}->{autosave};
+}
 
 
 
 
 sub read {
-    my ($self, $arg) = @_;
+  my ($self, $file) = @_;
 
-    if ( defined $arg ) {
-        $self->{_options}->{filename} = $arg;
-    }
+  if ( defined $self->{_FH} ) {
+    croak "Opened file handle detected. If you're trying to parse another file, close it first.";
+  }
 
-    my $filename = $self->{_options}->{filename};
-    unless ( defined $filename ) {
-        croak "No file name specified";
-    }
+  unless ( $file ) {
+    croak "Usage: OBJ->read(\$file_name)";
+  }
 
-    unless ( sysopen(CFG, $filename, O_RDONLY) ) {
-        croak "Couldn't read $filename: $!";
-    }    
-    unless ( flock(CFG, LOCK_SH) ) {
-        croak "Couldn't LOCK_SH $filename: $!";
-    }
+  unless ( sysopen(FH, $file, O_RDWR|O_CREAT, 0600  ) ) {
+    croak "Couldn't read '$file': $!";
+  }
 
-    # whitespace support (\s*) added by Michael Caldwell <mjc@mjcnet.com>
-    # date: Tuesday, May 14, 2002
+  $self->{_FILE_NAME}   = $file;
+  $self->{_FILE_HANDLE} = \*FH;
+  $self->{_SYNTAX} = $self->guess_syntax();
 
-    # default namespace suggestion and partial patch submitted by
-    # Ruslan U. Zakirov <cubic@wr.miee.ru>
-    # date: Sat, Nov 09, 2002
+  $self->{_SYNTAX} eq 'ini'     and $self->parse_ini_file();
+  $self->{_SYNTAX} eq 'simple'  and $self->parse_cfg_file();
+  $self->{_SYNTAX} eq 'http'    and $self->parse_http_file();
+}
 
-    my $afterdot= 0;
-    my $ns      = $DEFAULTNS;
-    my $data    = {}; # to help the while() loop look less hairy
 
-    while ( <CFG> ) {
-        # If we're processing the lines after the single dot (.),
-        # store everything as it is
-        $afterdot                and $self->{_after_dot} .= $_, next;
 
-        # If we come accross empty lines or comments, skip them
-        /^(\n|\#|;)/             and next;
+# tries to guess the syntax of the configuration file.
+# returns 'ini', 'simple' or 'http'.
+sub guess_syntax {
+  my ($self, $fh) = @_;
 
-        # If we came this far, we're guaranteed that the current line
-        # we're working on is either a block declaration like [something]
-        # or key=value pairs, or may be even a single dot (.) character.
-        
-        /\s*\[([^\]]+)\]\s*/     and $ns = lc($1), next;        
-        /\s*([^=]+?)\s*=\s*(.*)/ and $USEQQ ? 
-                                    ($data->{$ns}->{lc($1)} = (quotewords('\s+',0,$self->_decode($2)))[0]) :
-                                                ($data->{$ns}->{lc($1)} = $self->_decode($2)), next;
-                                        
-                                    
+  unless ( defined $fh ) {
+    $fh = $self->{_FILE_HANDLE} or die "'_FILE_HANDLE' is not defined";
+  }
 
-        /^\./                    and $afterdot=1, next;
+  seek($fh, 0, 0) or croak "Couldn't seek($fh, 0, 0): $!";
 
-        # If we came this far, something smells fishy around here
-        croak "Syntax error on line $.:'$_'";
-    }
+  # now we keep reading the file line by line untill we can identify the
+  # syntax
+  verbose("Trying to guess the file syntax...");
+  while ( <$fh> ) {
+    # skipping emptpy lines and comments. They don't tell much anyways
+    /^(\n|\#|;)/ and next;
+    /\w/ or next;
 
-    # don't forget to assign the $data to object
-    $self->{_data} = $data;
+    chomp();
 
-    unless ( close(CFG) ) {
-        croak "Couldn't close $filename: $!";
-    }
+    # If there's a block, it is an ini syntax
+    /^\s*\[\s*[^\]]+\s*\]\s*$/  and verbose("'$_'-ini style"), return 'ini';
+
+    # If we can read key/value pairs seperated by '=', it still
+    # is an ini syntax with a default block assumed
+    /^\s*[^=]+\s*=\s*.*\s*$/    and $self->{_SUB_SYNTAX} = 'simple-ini', return 'ini';
+
+    # If we can read key/value pairs seperated by ':', it is an
+    # http syntax
+    /^\s*[\w-]+\s*:\s*.*\s*$/   and return 'http';
+
+    # If we can read key/value pairs seperated by just whitespase,
+    # it is a simple syntax.
+    /^\s*[\w-]+\s+.*$/          and return 'simple';
+
+    # If we came this far, we're still struggling to figure
+    # out the syntax. Just throw an exception:
+    croak "Couldn't guess file syntax";
+  }
 }
 
 
@@ -152,9 +175,77 @@ sub read {
 
 
 
-sub _get_block {
-    my ($self, $blockname) = @_;
-    return $self->{_data}->{$blockname};
+sub parse_ini_file {
+  my ($self, $fh) = @_;
+
+  unless ( defined $fh ) {
+    $fh = $self->{_FILE_HANDLE} or die "'_FILE_HANDLE' is not defined";
+  }
+
+  seek($fh, 0, 0) or croak "Couldn't seek($fh, 0, 0) in '$self->{_FILE_NAME}': $!";
+
+  my $bn = $DEFAULTNS;
+  my %data = ();
+  while ( <$fh> ) {
+    # skipping comments and empty lines:
+    /^(\n|\#|;)/  and next;
+    /\w/          or  next;
+
+    # stripping $/:
+    chomp();
+
+    # parsing the blockname:
+    /^\s*\[\s*([^\]]+)\s*\]$/       and $bn = lcase($1), next;
+
+    # parsing key/value pairs
+    /^\s*([^=]*\w)\s*=\s*(.*)\s*$/  and $data{$bn}->{lcase($1)}=[parse_line(DELIM, 0, $2)], next;
+
+    # if we came this far, the syntax couldn't be validated:
+    croak "Syntax error on line $. '$_'";
+  }
+
+  $self->{_DATA} = \%data;
+
+  close($fh) or die $!;
+  return 1;
+}
+
+
+sub lcase {
+  my $str = shift;
+  $LC or return $str;
+  return lc($str);
+}
+
+
+
+
+sub parse_cfg_file {
+  my ($self, $fh) = @_;
+
+  unless ( defined $fh ) {
+    $fh = $self->{_FILE_HANDLE} or die "'_FILE_HANDLE' is not defined";
+  }
+
+  seek($fh, 0, 0) or croak "Couldn't seek($fh, 0, 0) in '$self->{_FILE_NAME}':$!";
+
+  while ( <$fh> ) {
+    # skipping comments and empty lines:
+    /^(\n|\#)/  and next;
+    /\w/        or  next;
+
+    # stripping $/:
+    chomp();
+
+    # parsing key/value pairs
+    /^\s*([\w-]+)\s+(.*)\s*$/ and $self->{_DATA}->{lcase($1)}=[parse_line(DELIM, 0, $2)], next;
+
+    # if we came this far, the syntax couldn't be validated:
+    croak "Syntax error on line $.: '$_'";
+  }
+
+  close($fh) or die $!;
+  return 1;
 }
 
 
@@ -162,149 +253,165 @@ sub _get_block {
 
 
 
+sub parse_http_file {
+  my ($self, $fh) = @_;
+
+  unless ( defined $fh ) {
+    $fh = $self->{_FILE_HANDLE} or die "'_FILE_HANDLE' is not defined";
+  }
 
 
-sub _get_param {
-    my ($self, $blockname, $param) = @_;
+  seek($fh, 0, 0) or croak "Couldn't seek($fh, 0, 0) in '$self->{_FILE_NAME}':$!";
 
-    # if $param doesn't exist, treat $blockname as $blockname.$param
-    unless ( defined $param ) {
-        ($blockname, $param) = split(/\./, $blockname);
-    }
+  while ( <$fh> ) {
+    # skipping comments and empty lines:
+    /^(\n|\#)/  and next;
+    /\w/        or  next;
 
-    unless ( defined $param ) {
-        croak "_get_param(): Invalid parameter format";
-    }
+    # stripping $/:
+    chomp();
 
-    return $self->{_data}->{$blockname}->{$param};
+    # parsing key/value pairs:
+    /^\s*([\w-]+)\s*:\s*(.*)$/  and $self->{_DATA}->{lcase($1)}=[parse_line(DELIM, 0, $2)], next;
+
+    # if we came this far, the syntax couldn't be validated:
+    croak "Syntax error on line $.: '$_'";
+  }
+
+  close($fh) or die $!;
+  return 1;
 }
 
-
-
-
-
-
-
-
-
-sub _set_param {
-    my ($self, $blockname, $param, $value) = @_;
-
-    if ( @_ < 3 ) {
-        croak "_set_param(): Insufficient arguments";
-    }
-
-    # if the last argument, value is missing, treat $param as $value,
-    # and treat $blockanme as $blockname.$param
-    unless ( $value ) {
-        $value = $param;
-        ($blockname, $param) = split (/\./, $blockname);
-    }
-
-    unless ( $blockname ) {
-        croak "_set_param(): Invalid parameter format";
-    }
-
-    $self->{_data}->{lc($blockname)}->{lc($param)} = $value;
-}
-
-
-
-
-
-
-
-
-
-
-sub _set_block {
-    my ($self, $blockname, $block) = @_;
-
-    unless ( defined $block ) {
-        croak "Block contents are missing";
-    }
-
-    unless ( ref($block) eq 'HASH' ) {
-        croak "Block contents should be hash reference";
-    }
-
-    $self->{_data}->{lc($blockname)} = $block;
-}
-
-
-
-
-sub hashref {
-    my $self = shift;
-
-    my $data = $self->{_data};
-
-    my %Hash = ();
-    while ( my ($blockname, $block) = each %{$data} ) {
-        while ( my ($key, $value) = each %{$block} ) {
-            $Hash{ "$blockname.$key" } = $value;
-        }
-    }
-    return \%Hash;
-}
-
-
-sub param_hash {
-    my $self = shift;
-
-    return %{ $self->hashref() };
-}
 
 
 sub param {
-    my $self  = shift;
+  my $self = shift;
 
-    # if called without any arguments, returns all the
-    # available keys
-    unless ( @_ ) {
-        return keys %{ $self->hashref };
+  # If called with no arguments, return all the
+  # possible keys
+  unless ( @_ ) {
+    return keys %{$self->{_DATA}};
+  }
+
+  # if called with a single argument, return the value
+  # matching this key
+  if ( @_ == 1) {
+    my $value = $self->get_param(@_) or return;
+
+    # If array has a single element, return it
+    if ( @{$value} == 1 ) {
+      return $value->[0];
+    }
+    # otherwise, return value depending on the context
+    return wantarray ? @{$value} : $value;
+  }
+
+  # if we come this far, we were called with multiple
+  # arguments. Go figure!
+  my $args = {
+    '-name',   undef,
+    '-value',  undef,
+    '-values', undef,
+    '-block',  undef,
+    @_
+  };
+
+  if ( $args->{'-name'} && ($args->{'-value'} || $args->{'-values'}) ) {
+    # OBJ->param(-name=>'..', -value=>'...') syntax:
+    return $self->set_param($args->{'-name'}, $args->{'-value'}||$args->{'-values'});
+
+  }
+
+  if ( $args->{'-name'} ) {
+    # OBJ->param(-name=>'...') syntax:
+
+    my $value = $self->get_param($args->{'-name'});
+
+     # If array has a single element, return it
+    if ( @{$value} == 1 ) {
+      return $value->[0];
+    }
+    # otherwise, return value depending on the context
+    return wantarray ? @{$value} : $value;
+
+  }
+
+  if ( @_ % 2 ) {
+    croak "param(): illegal syntax";
+  }
+
+  my $nset = 0;
+  for ( my $i = 0; $i < @_; $i += 2 ) {
+    $self->set_param($_[$i], $_[$i+1]) && $nset++;
+  }
+
+  return $nset;
+}
+
+
+
+
+sub get_param {
+  my ($self, $arg) = @_;
+
+  unless ( $arg ) {
+    croak "Usage: OBJ->get_param(\$key)";
+  }
+
+  $arg = lcase($arg);
+
+  my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is undefined";
+
+  # If it was an ini-style, we should first
+  # split the argument into its block name and key
+  # components:
+  if ( $syntax eq 'ini' ) {
+    my ($block_name, $key) = $arg =~ m/^([^\.]+)\.(.*)$/;
+
+    if ( $block_name && $key ) {
+      return $self->{_DATA}->{$block_name}->{$key};
+
     }
 
-    # if called with a single argument, returns a matching value
-    if ( @_ == 1 ) {
-        # consider it as blockname.param
-        return $self->_get_param( $_[0] );
+    # if it really was an ini-styled file, probably simplified
+    # syntax was used. In this case we assumed $DEFAULTNS
+    # as the default blockname and treat $arg as the key name
+    return $self->{_DATA}->{$DEFAULTNS}->{$arg};
+  }
+
+  return $self->{_DATA}->{$arg};
+}
+
+
+
+
+
+sub set_param {
+  my ($self, $key, $value) = @_;
+
+  my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is not defined";
+
+  unless ( ref($value) eq 'ARRAY' ) {
+    $value = [$value];
+  }
+
+  $key = lcase($key);
+
+  # If it was an ini syntax, we should first split the $key
+  # into its block_name and key components
+  if ( $syntax eq 'ini' ) {
+    my ($bn, $k) = $key =~ m/^([^\.]+)\.(.*)$/;
+
+    if ( $bn && $k ) {
+      return $self->{_DATA}->{$bn}->{$k} = $value;
     }
 
-    # If we're this far, we have to figure out which of the following
-    # syntax are used:
-    # param(-name=>'block.param'), param('block.name', 'value'),
-    # param(-name=>'block.param', -value=>'value'), param(-block=>'block')
-    my $args = {
-        '-name'     => undef,
-        '-value'    => undef,
-        '-values'   => undef,
-        '-block'    => undef,
-        @_,
-    };
+    # most likely the user is assuming default namespace then?
+    # Let's hope!
+    return $self->{_DATA}->{$DEFAULTNS}->{$key} = $value;
+  }
 
-    if ( $args->{'-name'} && $args->{'-value'} ) {
-        return $self->_set_param($args->{'-name'}, $args->{'-value'});
-    }
-
-    if ( $args->{'-name'} ) {
-        return $self->_get_param($args->{'-name'});
-    }
-
-    if ( $args->{'-block'} && $args->{'-values'} ) {
-        return $self->_set_block($args->{'-block'}, $args->{'-values'});
-    }
-
-    if ( $args->{'-block'} ) {
-        return $self->_get_block($args->{'-block'});
-    }
-
-    # if we came this far, most likely simple param(key=>value) syntax was used:
-    if ( @_ == 2 ) {
-        return $self->_set_param(@_);
-    }
-
-    croak "param(): usage incorrect";
+  return $self->{_DATA}->{$key} = $value;
 }
 
 
@@ -312,520 +419,451 @@ sub param {
 
 
 
-sub block {
-    my $self = shift;
+# returns all the keys as a hash or hashref
+sub vars {
+  my $self = shift;
 
-    if ( @_ ) {
-        return $self->_get_block(@_);
+  my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is not defined";
+
+  my %vars = ();
+  if ( $syntax eq 'ini' ) {
+    while ( my ($block, $values) = each %{$self->{_DATA}} ) {
+      while ( my ($k, $v) = each %{$values} ) {
+        $vars{"$block.$k"} = @$v == 1 ? $v->[0] : $v;
+      }
     }
 
-    return keys %{$self->{_data}};
+  } else {
+    while ( my ($k, $v) = each %{$self->{_DATA}} ) {
+      $vars{$k} = @$v ? $v->[0] : $v;
+    }
+  }
+
+  return wantarray ? %vars : \%vars;
 }
 
 
 
-
-
-
-
-
-sub delete {
-    my $self = shift;
-
-    unless (@_) {
-        croak "delete(): Insufficient parameters";
-    }
-
-    my ($block, $param) = split (/\./, $_[0]);
-
-    # if block and $params are defined, we should clear
-    # only that particular key. Otherwise, we take it as a
-    # name of a whole block to be deleted
-    if ( defined($block) && defined($param) ) {
-        return delete $self->{_data}->{$block}->{$param};
-    }
-
-    return delete $self->{_data}->{ $_[0] };
-}
 
 
 
 sub write {
-    my ($self, $new_file) = @_;
+  my ($self, $file) = @_;
 
-    # generating the content of the configuration file as a string    
-    my $contents = $self->write_string() or return;    
-    my $file    = $new_file || $self->{_options}->{filename};
+  $file ||= $self->{_FILE_NAME} or die "Neither '_FILE_NAME' nor \$filename defined";
 
-    unless ( defined $file ) {
-        croak "Don't which where to write into";
-    }    
-    
-    unless ( sysopen (FILE, $file, O_WRONLY|O_CREAT|O_TRUNC, 0666) ) {
-        croak "Couldn't open $file: $!";
+
+  sysopen(FH, $file, O_WRONLY|O_CREAT|O_TRUNC, 0600) or croak "Couldn't open '$file': $!";
+  unless ( flock(FH, LOCK_EX) ) {
+    croak "Couldn't lock $file: $!";
+  }
+  print FH $self->as_string();
+  close(FH) or die "Couldn't write into '$file': $!";
+
+  return 1;
+}
+
+
+
+sub save {
+  my $self = shift;
+
+  return $self->write(@_);
+}
+
+
+# generates a writable string
+sub as_string {
+  my $self = shift;
+
+  my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is not defiend";
+  my $sub_syntax = $self->{_SUB_SYNTAX};
+
+  my $STRING = undef;
+
+  if ( $syntax eq 'ini' ) {
+    $STRING .= "; Config::Simple $VERSION\n\n";
+    while ( my ($block_name, $key_values) = each %{$self->{_DATA}} ) {
+      unless ( $sub_syntax eq 'simple-ini' ) {
+        $STRING .= sprintf("[%s]\n", $block_name);
+      }
+      while ( my ($key, $value) = each %{$key_values} ) {
+        my $values = join ', ', map { quote_values($_) } @$value;
+        $STRING .= sprintf("%s=%s\n", $key, $values );
+      }
     }
-    
-    unless ( flock (FILE, LOCK_EX) ) {
-        croak "Couldn't LOCK_EX $file: $!";
-    }    
-    print FILE $contents;    
 
-    unless ( flock(FILE, LOCK_UN) ) {
-        croak "Couldn't unlock $file: $!";
+  } elsif ( $syntax eq 'http' ) {
+    $STRING .= "# Config::Simple $VERSION\n\n";
+    while ( my ($key, $value) = each %{$self->{_DATA}} ) {
+      my $values = join ', ', map { quote_values($_) } @$value;
+      $STRING .= sprintf("%s: %s\n", $key, $values);
     }
-    
-    unless ( close(FILE) ) {
-        croak "Couldn't close $new_file: $!";
-    }    
+
+  } elsif ( $syntax eq 'simple' ) {
+    $STRING .= "# Config::Simple $VERSION\n\n";
+    while ( my ($key, $value) = each %{$self->{_DATA}} ) {
+      my $values = join ', ', map { quote_values($_) } @$value;
+      $STRING .= sprintf("%s %s\n", $key, $values);
+    }
+  }
+
+  $STRING .= "\n";
+
+  return $STRING;
 }
 
 
 
 
 
-sub write_string {
-    my $self = shift;
-
-    my $data = $self->{_data} or return;
-
-    # Array to hold file lines
-    my @contents = ();
-
-    push @contents, "# Maintained by Config::Simple/$VERSION";
-    push @contents, '# ' . ("-" x 35), '', '';
-
-    while ( my ($blockname, $block) = each %{$data} ) {
-        push @contents, "[$blockname]";
-        while ( my ($key, $value) = each %{$block} ) {
-            $value = $self->_encode($value);
-            push @contents, "$key=$value";
-        }
-        push @contents, '', '';
-    }
-
-    if ( $self->{_after_dot} ) {
-        push @contents, ".", $self->{_after_dot};
-    }
-
-    # Merge and return the file contents
-    return join "\n", @contents;
- }
 
 
 
 
+# quotes each value before saving into file
+sub quote_values {
+  my $string = shift;
 
-sub _encode {
-    my ($self, $string) = @_;
-    return $self->{_options}->{encoder}->($string);
+  if ( ref($string) ) {
+    $string = $_[0];
+  }
+
+  if ( $string =~ m/\W/ ) {
+    $string =~ s/"/\\"/g;
+    return sprintf("\"%s\"", $string);
+  }
+
+  return $string;
 }
 
 
-
-sub _decode {
-    my ($self, $string) = @_;
-
-    return $self->{_options}->{decoder}->($string);
-}
 
 sub dump {
-    my ($self, $file) = @_;
+  my ($self, $file, $indent) = @_;
 
-    require Data::Dumper;
-    my $d = new Data::Dumper([$self], ["obj_tree"]);
+  require Data::Dumper;
 
-    if ( defined $file ) {
-        unless ( sysopen(DUMP_FILE, $file, O_WRONLY|O_CREAT|O_TRUNC, 0666 ) ) {
-            croak "Couldn't dump into $file: $!";
-        }
-        unless ( flock(DUMP_FILE, LOCK_SH) ) {
-            croak "Couldn't LOCK_SH $file: $!";
-        }
-        print DUMP_FILE $d->Dump();
-        unless ( close (DUMP_FILE) ) {
-            croak "Couldn't close $file: $!";
-        }
-    }
-    return $d->Dump();
+  my $d = new Data::Dumper([$self], [ref $self]);
+  $d->Indent($indent||2);
+
+  if ( defined $file ) {
+    sysopen(FH, $file, O_WRONLY|O_CREAT|O_TRUNC, 0600) or die $!;
+    print FH $d->Dump();
+    close(FH) or die $!;
+  }
+  return $d->Dump();
 }
 
 
-sub autosave {
-    my ($self, $new_value) = @_;
-
-    unless ( defined $new_value ) {
-        return $self->{_options}->{autosave} || 0;
-    }
-
-    $self->{_options}->{autosave} = $new_value;
+sub verbose {
+  DEBUG or return;
+  carp "****[$0]: " .  join ("", @_);
 }
 
 
 
-sub version {
 
-    return $VERSION;
+# -------------------
+# deprecated methods
+# -------------------
+
+sub write_string {
+  my $self = shift;
+
+  return $self->as_string(@_);
+}
+
+sub hashref {
+  my $self = shift;
+
+  return scalar( $self->vars() );
+}
+
+sub param_hash {
+  my $self = shift;
+
+  return ($self->vars);
 }
 
 
-sub encoder {
-    my ($self, $coderef) = @_;
 
-    unless ( ref($coderef) eq 'CODE' ) {
-        croak "set_encoder(): should've set coderef";
-    }
 
-    $self->{_options}->{encoder} = $coderef;
+
+
+
+sub TIEHASH {
+  croak "tie() interface still needs to be implemented";
 }
 
-
-sub decoder {
-    my ($self, $coderef) = @_;
-
-    unless ( ref($coderef) eq 'CODE' ) {
-        croak "set_encoder(): should've set coderef";
-    }
-
-    $self->{_options}->{decoder} = $coderef;
-}
 
 1;
+__END__;
 
 =pod
 
 =head1 NAME
 
-Config::Simple - Simple Configuration File class
+Config::Simple - simple configuration file class
 
 =head1 SYNOPSIS
 
+  use Config::Simple;
 
-    # In your configuratin file (some.cfg)
-    [mysql]
-    user=sherzodr
-    password=secret
-    host=localhost
-    database=test
+  my $cfg = new Config::Simple('app.cfg') or die Config::Simple->error();
 
+  # reading
+  my $user = $cfg->param("User");
 
-    # In your program
+  # updating:
+  $cfg->param(User=>'sherzodr');
 
-    use Config::Simple;
-
-    my $cfg = new Config::Simple("some.cfg");
-
-    # reading
-    my $user = $cfg->param('mysql.user');
-    my $password = $cfg->param('mysql.password');
-
-    # updating
-    $cfg->param('mysql.user', foo);
-
-    # saving the changes back into the file
-    $cfg->write();
-
-    # tricks are endless
+  # saving
+  $cfg->write();
+  # or
+  $cfg->save()
 
 
 =head1 DESCRIPTION
 
-Config::Simple is a Perl class to manipulate simple, windows-ini-styled
-configuration files. Reading and writing external configurable data is
-the integral part of any software design, and Config::Simple is designed to
-help you with it.
+Reading and writing configuration files is one of the most frequent
+aspects of any software design. Config::Simple is the library to help
+you with it.
 
-=head1 REVISION
+=head1 ONE SIZE FITS ALL
 
-This manual refers to $Revision: 3.10 $
+Well, almost all. Cofig::Simple supports variety of configuration file
+formats. Following are some overview of configuration file formats:
 
-=head1 CONFIGURATION FILE SYNTAX
+=head2 SIMPLE CONFIGURATION
 
-Syntax of the configuration file is similar to windows .ini files, where
-configuration variables and their values are seperated with '=' sign, 
-each set belongind to a specific namespace (block):
+Simple syntax is what you need for most of your projects. These
+are, as the name asserts, the simplest. File consists of key/value
+pairs, delimited by nothing but whitespace. Keys (variables) should
+be strictly alpha-numeric with possible dashes (-). Values can hold
+any arbitrary text. Here is an example of such a configuration file:
 
-	[block]
-	var1=value1
-	var2=value2
+  Alias     /exec
+  TempFile  /usr/tmp
 
-If the block is missing, or any of the key=value pairs are encountered
-without prior block declaration, they will be assigned to a virtual block.
-Name of the virtual block is controlled with B<$Config::Simple::DEFAULTNS>
-variable:
+Comments start with a pound ('#') sign and cannot share the same
+line with other configuration data.
 
-    use Config::Simple;
-    $Config::Simple::DEFAULTNS = "root";
-    $cfg = new Config::Simple("some.cfg");
+=head2 HTTP-LIKE SYNTAX
 
-If you do not explicitly assign a namespace, "default" is implied. 
+This format of seperating key/value pairs is used by HTTP messages.
+Each key/value is seperated by semi-colon (:). Keys are alphanumeric
+strings with possible '-'. Values can be any artibtrary text:
 
-By default, Config::Simple treats everything after the '=' to the end of the
-line as configuration value (spaces trimmed). Unfortunately, other configuration
-file parsing utilities do not quite aggree with the idea, and assert if the
-value contains non-alphanumerics, they should be enclosed in double quotes (").
-Config::Simple supports this syntax as well. If you intend to use this syntax,
-you should enable "-strict" switch like so:
-
-    use Config::Simple qw/-strict/;
-
-Now Config::Simple expects to see any values that contain non-alphanumeric
-characters in double quotes. Double quotes to be used inside the value should
-be escaped with \ (backslash):
-
-    [default]
-    nick = sherzodR
-    name = "Sherzod Ruzmetov"
-    url  = "http://author.ultracgis.com"
-    email= "sherzodr@cpan.org"
-    quoted = "My favorite quote is \"Learn as if you were to live forever\""
-    age  = 22
-
-Enabling "-strict" switch is also useful to keep trailing and leading spaces in 
-configuration values:
-
-    [default]
-    signature = "            Foo Bar                   "
-
-Lines starting with '#' or ';' to the end of the line are considered comments,
-thus ignored while parsing. Line, containing a single dot is the logical end
-of the configuration file (doesn't necessaryily have to be the physical end though ).
-So everything after that line is also ignored. 
-
-Note, when you ask Config::Simple to save the changes back, all the comments
-will be discarded, but everything after that final dot is stored back as it was. 
-
-I admit, keeping the comments would be quite useful too. May be in subsequent releases.
-
-=head1 CONSTRUCTOR
-
-C<new()> - constructor,  initializes and returns Config::Simple object. Following
-options are available:
-
-=over 4
-
-=item *
-
-C<filename> - filename to read into memory. If this option is defined,
-Config::Simple also calls read() for you. If there's only one argument
-passed to the constructor, it will be treated as the filename as well.
-
-=item *
-
-C<autosave> - boolean value indicating if in-memory modifications be saved back
-to configuration file before object is destroyed. Default is 0, which means "no".
-(See L<autosave()>)
-
-=item *
-
-C<decoder> - reference to a function (coderef), is used by read() to decode the
-values. If this option is missing, default decoder will be used,
-which simply decodes new line characters (\n) back to newlines (opposite of default
-encoder). See L<decoder()>.
-
-=item *
-
-C<encoder> - reference to a function (coderef). Is used by write() to encode
-special characters/sequences before saving them in the configuration file.
-If this option is missing, default encoder will be used, which encodes newlines to avoid
-corrupted configuration files. See L<encoder()>.
-
-=back
-
-All the arguments to the constructor can also be set with their respective accessor methods.
-However, there's an important point to keep in mind. If you define filename as an argument
-while calling the constructor and at the same time want to use your custom decoder, you should specify
-the decoder together with the filename. Otherwise, when constructor calls read(), it will
-use default decoder(). Another option is not to mention filename to constructor, but do so
-to read().
-
-=head1 METHODS
-
-Following methods are available for a Config::Simple object
-
-=over 4
-
-=item *
-
-read() - reads and parses the configuration file into Config::Simple object. Accepts one argument,
-which is treated as a filename to read. If "filename" option to the constructor was defined,
-there's no point calling read(), since new() will call it for you.
 Example:
 
-    $cfg = new Config::Simple();
-    $cfg->read("some.cfg");
+  Alias: /exec
+  TempFile: /usr/tmp
 
-=item *
+It is OK to have spaces around ':'. Comments start with '#' and cannot
+share the same line with other configuration data
 
-hashref() - returns the configuration file as a reference to a hash. Keys consist of
-configuration section and section key separated by a dot (.), and value holding the value
-for that key. Example:
+=head2 INI-FILE
 
-    # some.cfg
-    [section]
-    key1=value1
-    key2=value2
+This configuration files are more native to Win32 systems. Data
+is organized in blocks. Each key/value pair is delimited with an
+equal (=) sign. Blocks are declared on their own lines inclosed in
+'[' and ']':
 
-Hashref will return the following hash:
-
-    $ref = {
-        'section.key1' => value1,
-        'section.key2' => value2,
-    }
-
-=item *
-
-param_hash() - for backward compatibility. Returns similar data as hashref() does
-(see L<hashref()>), but returns de referenced hash.
-
-=item *
-
-param() - used for accessing and modifying configuration values. Act differently
-depending on the arguments passed.
-
-=over 4
-
-=item param()
-
-If used with no arguments, returns all the
-keys available in the configuration file. Once again, keys are sections and section
-variables delimited with a dot.
-
-=item param($key)
-
-If used with a single argument, returns the respective value for that key. Argument
-is expected to be in the form of "sectionName.variableName".
-
-=item param(-name=>$key)
-
-The same as the previous syntax.
-
-=item param($key, $value)
-
-Used to modify $key with $value. $key is expected to be in "sectionName.variableName" format.
-
-=item param(-name=>$key, -value=>$value);
-
-The same as the previous syntax.
-
-=item param(-block=>$blockname)
-
-Returns a single block/section from the configuration file in form of hashref (reference to
-a hash). For example, assume we had the following block in our "some.cfg"
-
-    [mysql]
-    user=sherzodr
-    password=secret
-    host=localhost
-    database=test
-
-We can access the above block like so:
-
-    my $mysql = $cfg->param(-block=>'mysql');
-    my $user = $mysql->{user};
-    my $host = $mysql->{host};
-
-=item param(-block=>$blockname, -values=>{key1 => value1,...})
-
-Used to create a new block or redefine the existing one.
-
-=back
+  [BLOCK1]
+  KEY1=VALUE1
+  KEY2=VALUE2
 
 
-=item block()
+  [BLOCK2]
+  KEY1=VALUE1
+  KEY2=VALUE2
 
-Returns the list of all the avialable blocks in the configuration file.
-If used with an argument, returns the content of that particular block
-in the form of hashref:
+This is the perfect choice if you need to organize your configuration
+file into categories.
 
-    my @blocks = $cfg->block();
+ADVICE: Avoid using none alpha-numeric characters as blockname or key. If value
+consists of none alpha-numeric characters, its better to inclose them in
+double quotes. Althogh these constraints are not mandatory while using
+Config::Simple, they will help to make your configuration files more portable.
 
+  [site]
+  url="http://www.handalak.com"
+  title="Website of a \"Geek\""
+  author=sherzodr
 
-=item *
+=head2 SIMPLIFIED INI-FILE
 
-write() - saves the modifications to the configuration file. Config::Simple
-will call write() for you automatically if 'autosave' was set to true (see L<new()>). Otherwise,
-write() is there for you if need. Argument, if exists, will be treated a name of a file
-current data should be written in. It's useful to copy modified configuration file
-to a different location, or to save the backup copy of a current configuration file
-before making any changes to it:
+If you do not want to declear several blocks, you can easily leave out block declaration.
+They will be assigned to a default block automatically:
 
-    $cfg = new Config::Simple(filename=>'some.cfg', autosave=>1);
+  url = "http://www.handalak.com"
 
-    $cfg->write('some.cfg.bak');        # creating backup copy
-                                        # before updating the contents
+is the same as saying:
 
+  [default]
+  url = "http://www.handalak.com"
 
-=item *
+Comments can begin with either pound ('#') or semi-colon (';'). Each comment
+should reside on its own line
 
-write_string() - creates and returns the content of the configuration file as a string,
-instead of writing it into a file. The string returned by write_string() is guaranteed
-to be the same as what is written into a file.
+=head1 PROGRAMMING STYLE
 
-=item *
+=head2 READING THE CONFIGURATION FILE
 
-encoder() - sets a new encoder to be used in the form of coderef. This encoder
-will be used by write() before writing the values back to a file. Alternatively,
-you can define the encoder as an argument to constructor ( see L<new()> ).
+To read the existing configuration file, simply pass its name
+to the constructor new() while creating the Config::Simple object:
 
-=item *
+  $cfg = new Config::Simple('app.cfg');
 
-decoder() - sets a new decoder to be used in the form of coderef. This decoder is
-used by read() ( see L<read()> ), so should be set (if at all) before calling read().
-Alternatively, you can define the decoder as an argument to constructor ( see L<new()> ).
+The above line reads and parses the configuration file accordingly.
+It tries to guess which syntax is used. Alternatively, you can
+create an empty object, and only then read the configuration file in:
 
-=item *
+  $cfg = new Config::Simple();
+  $cfg->read('app.cfg');
 
-autosave() - sets autosave value (see L<new()>)
+As in the first example, read() tries to guess the syntax used in the
+configuration file.
 
-=item *
+If, for any reason, it fail to guess the syntax correctly (which is less likely),
+you can try to debug by using its guess_syntax() method. It expects
+filehandle for a  configuration file and returns the name of a style.
 
-dump() - dumps the object data structure either to STDOUT or into a filename which
-can be defined as the first argument. Used for debugging only
+  $cfg = new Config::Simple();
 
-=back
+  open(FH, "app.cfg");
+  printf("This file uses '%s' syntax\n", $cfg->quess_syntax(\*FH));
+
+=head2 ACCESSING VALUES
+
+After you read the configuration file into Config::Simple object
+succesfully, you can use param() method to access the configuration values.
+For example:
+
+  $user = $cfg->param("User");
+
+will return the value of "User" from either simple configuration file, or
+http-styled configuration as well as simplified ini-files. To acccess the
+value from a traditional ini-file, consider the following syntax:
+
+  $user = $cfg->param("mysql.user");
+
+The above returns the value of "user" from within "[mysql]" block. Notice the
+use of dot "." to delimit block and key names.
+
+Config::Simple also supports vars() method, which, depending on the context
+used, returns all the values either as hashref or hash:
+
+  my %Config = $cfg->vars();
+
+  print "Username: $Config{User}";
+
+  # If it was a traditional ini-file:
+  print "Username: $Config{'mysql.user'}";
+
+If you call vars() in scalar context, you will end up with a refrence to a hash:
+
+  my $Config = $cfg->vars();
+
+  print "Username: $Config->{User}";
+
+=head2 UPDATING THE VALUES
+
+Configuration values, once read into Config::Simple, can be updated from within
+your programs by using the same param() method used for accessing them. For example:
+
+  $cfg->param("User", "sherzodR");
+
+The above line changes the value of "User" to "sherzodR". Similar syntax is applicable
+for ini-files as well:
+
+  $cfg->param("mysql.user", "sherzodR");
+
+=head2 SAVING/WRITING CONFIGURATION FILES
+
+The above updates to the configuration values are in-memory operations. They
+do not reflect in the file itself. To modify the files accordingly, you need to
+call either "write()" or "save()" methods on the object:
+
+  $cfg->write();
+
+The above line writes the modifications to the configuration file. Alternatively,
+you can pass a name to either write() or save() to indicate the name of the
+file to create instead of modifying existing configuration file:
+
+  $cfg->write("app.cfg.bak");
+
+If you want the changes saved all the time, you can turn C<autosave> mode on
+by passing true value to $cfg->autosave():
+
+  $cfg->autosave(1);
+
+=head2 MULTIPLE VALUES
+
+Ever wanted a key in the configuration file to hold array of values? Well, I did.
+That's why Config::Simple supports this fancy feature as well. Simply seperate your values
+with a comma:
+
+  Files hp.cgi, template.html, styles.css
+
+Now param() method returns an array of values split at comma:
+
+  @files = $cfg->param("Files");
+  unlink $_ for @files;
+
+If you want a comma as part of a value, enclose the value(s) in double quotes:
+
+  CVSFiles "hp.cgi,v", "template.html,v", "styles.css,v"
+
+In case you want either of the values to hold literal quote ("), you can
+escape it with a backlash:
+
+  SiteTitle "sherzod \"The Geek\""
+
+=head1 CASE SENSITIVITY
+
+By default, configuration file keys and values are case sensitive. Which means,
+$cfg->param("User") and $cfg->param("user") are refering to two different values.
+But it is possible to force Config::Simple to ignore cases all together by enabling
+C<-lc> switch while loading the library:
+
+  use Config::Simple ('-lc');
+
+WARNING: If you call write() or save(), while working on C<-lc> mode, all the case
+information of the original file will be lost. So use it if you know what you're doing.
 
 =head1 CREDITS
-
-Following people contributed with patches and/or suggestions to the Config::Simple.
-In chronological order:
 
 =over 4
 
 =item Michael Caldwell (mjc@mjcnet.com)
 
-Added witespace support in the configuration files, which enables custom identation
+whitespace support, C<-lc> switch
 
 =item Scott Weinstein (Scott.Weinstein@lazard.com)
 
-Fixed the bugs in the TIEHASH method.
+bug fix in TIEHASH
 
 =item Ruslan U. Zakirov <cubic@wr.miee.ru>
 
-Default namespace suggestion and patch.
-
-=item Adam Kennedy <cpan@ali.as>  
-
-Added a write_string() method, for getting the file as a string.
-Fix for the case when the value is ''
-
-=item Gavin Brown <gavin.brown@centralnic.com>
-
-Proposed quoted values feature. This made configuration files created by
-Config::Simple compatible with those expected by PHP's parse_ini_file() function.
+Default namespace suggestion and patch
 
 =back
 
-=head1 AUTHOR
-
-Config::Simple is written and maintained by Sherzod Ruzmetov <sherzodr@cpan.org>
-
 =head1 COPYRIGHT
 
-    This library is a free software, and can be modified and redistributed
-    under the same terms as Perl itself.
+  Copyright (C) 2002-2003 Sherzod B. Ruzmetov.
 
-=head1 SEE ALSO
+  This softeware is free library. You can modify and/or distribute it
+  under the same terms as Perl itself
 
-L<Config::General>
+=head1 AUTHOR
+
+  Sherzod B. Ruzmetov E<lt>sherzodr@cpan.orgE<gt>
+  URI: http://author.handalak.com
 
 =cut
+
+
+

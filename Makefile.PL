@@ -1,16 +1,5 @@
 use ExtUtils::MakeMaker;
 
-eval "require Digest::MD5";
-
-if ( $@ ) {
-	warn <<WARNING;
-###JUST A WARNING:    ###################################
-# You do not have optional Digest::MD5 module installed.#
-# You can download the latest version from CPAN.org.    #
-#########################################################
-WARNING
-}
-
 WriteMakefile(
     'NAME'		=> 'Config::Simple',
     'VERSION_FROM'	=> 'Simple.pm', 
