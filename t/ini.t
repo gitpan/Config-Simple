@@ -7,7 +7,7 @@
 
 use Test::More 'no_plan';
 use File::Spec;
-BEGIN { use_ok('Config::Simple') };
+use Config::Simple;
 
 #########################
 

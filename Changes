@@ -1,12 +1,10 @@
 
-WHAT'S NEW in 3.13?
+WHAT'S NEW in 4.0?
 
   * Support for multiple values using comma (,);
-  * Support for multiple configuration file syntaxes including 
+  * Smart support for multiple configuration file syntaxes including 
     ini-files, simple config. as well as http-like style
-  * guess_syntax() method which tries to identify the syntax of the configuration
-    file and parses accordingly
-  * key values can be either quoted or not. 
+  * quoting key values is optional
   * -lc switch to disable case sensitive parsing of blocknames and keys
   * much improved write()
 
