@@ -13,7 +13,7 @@ use vars qw($VERSION @ISA @EXPORT $MD5 $errstr $LOCK_FILE);
 
 @ISA = qw(Exporter);
 
-$VERSION = "2.8";
+$VERSION = "2.81";
 
 eval {
     for ( @Fcntl::EXPORT ) {
@@ -166,7 +166,18 @@ sub _get_single_param {
     my $value = $self->{_cfg}->{$block}->{$key} || "";
     $value =~ s/\\n/\n/g;
 
+
+    # still not sure if it does the trick. Gotta check it out
+    if ( wantarray ) {
+
+        my @array = split /,/, $value;
+        return map { s/^\s+//, s/\s+$// } @array;
+
+    }
+
+
     return $value;
+
 }
 
 
@@ -188,7 +199,8 @@ sub param {
 
     # @b = $config->param();
     unless ( scalar(@_) ) {
-        return keys %{$self->{_cfg}};
+        my %tmp = $self->param_hash();
+        return keys %tmp;
     }
 
     # $config->param('author.f_name');
@@ -572,11 +584,32 @@ in your Perl application:
     delete $Config{'mysql.RaiseError'};         # also updates the file
 
 
+=head1 WARNING
+
+As of version 2.9 library's C<param()> method slightly changed its behavior
+when called without arguments. Prior to this version it used to return list
+consisting of the names of blocks in the configuration file. After 2.9 and above
+it retruns the list of all the names. Example:
+
+    # in the config file:
+    [mysql]
+    host = localhost
+    user = sherzodr
+    password = marley01
+
+    [general]
+    site_url = http://www.ultracgis.com
+    site_path = /home/sherzodr/public_html
+
+
+Prior to 2.9 syntac C<$config->param()> used to return list of "mysql" and "general".
+Now it returns "mysql.host", "mysql.user", "mysq.password", "general.site_url",
+"general.site_path". Sorry about the incompatibility.
 
 
 =head1 NOTE
 
-This documentation refers to version 2.8 of Config::Simple. If you have a version
+This documentation refers to version 2.81 of Config::Simple. If you have a version
 older than this, please update it to the latest release.
 
 =head1 DESCRIPTION

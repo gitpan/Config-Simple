@@ -11,7 +11,7 @@ my $filename = File::Spec->catfile("t", "sample.cfg");
 my $cfg = new Config::Simple(filename=>$filename, mode=>O_RDONLY|O_CREAT) or die $Config::Simple::errstr;
 
 ok($cfg);
-ok(scalar($cfg->param()), 2);
+ok(scalar($cfg->param()), 9);
 ok($cfg->param("module.name"), "Config::Simple");
 ok($cfg->param(-name=>"author.f_name"), "Sherzod"); # test 5
 
@@ -39,7 +39,7 @@ ok( $cfg->write($filename) ) or die $cfg->error();
 $cfg = new Config::Simple(filename=>$filename, mode=>O_RDONLY) or die $Config::Simple::errstr;
 
 ok($cfg);
-ok(scalar($cfg->param()), 3);
+ok(scalar($cfg->param()), 12);
 ok($cfg->param("module.name"), "Config::Simple");   # test 15
 ok($cfg->param(-name=>"author.f_name"), "Sherzod");
 ok($cfg->param(-name=>"test-results.succeeded"), 29);
