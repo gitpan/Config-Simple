@@ -34,7 +34,7 @@ DESCRIPTION
     to help you with it.
 
 REVISION
-    This manual refers to $Revision: 3.3 $
+    This manual refers to $Revision: 3.4 $
 
 CONFIGURATION FILE SYNTAX
     Syntax of the configuration file is similar to windows .ini files, where
@@ -54,8 +54,35 @@ CONFIGURATION FILE SYNTAX
         $Config::Simple::DEFAULTNS = "root";
         $cfg = new Config::Simple("some.cfg");
 
-    If you do not explicitly assign a namespace, "default" is implied. (
-    Thanks to Ruslan U. Zakirov <cubic@wr.miee.ru> for this useful feature )
+    If you do not explicitly assign a namespace, "default" is implied.
+
+    By default, Config::Simple treats everything after the '=' to the end of
+    the line as configuration value (spaces trimmed). Unfortunately, other
+    configuration file parsing utilities do not quite aggree with the idea,
+    and assert if the value contains non-alphanumerics, they should be
+    enclosed in double quotes ("). Config::Simple supports this syntax as
+    well. If you intend to use this syntax, you should enable "-strict"
+    switch like so:
+
+        use Config::Simple qw/-strict/;
+
+    Now Config::Simple expects to see any values that contain
+    non-alphanumeric characters in double quotes. Double quotes to be used
+    inside the value should be escaped with \ (backslash):
+
+        [default]
+        nick = sherzodR
+        name = "Sherzod Ruzmetov"
+        url  = "http://author.ultracgis.com"
+        email= "sherzodr@cpan.org"
+        quoted = "My favorite quote is \"Learn as if you were to live forever\""
+        age  = 22
+
+    Enabling "-strict" switch is also useful to keep trailing and leading
+    spaces in configuration values:
+
+        [default]
+        signature = "            Foo Bar                   "
 
     Lines starting with '#' or ';' to the end of the line are considered
     comments, thus ignored while parsing. Line, containing a single dot is
@@ -177,6 +204,13 @@ METHODS
 
         param(-block=>$blockname, -values=>{key1 => value1,...})
             Used to create a new block or redefine the existing one.
+
+    block()
+        Returns the list of all the avialable blocks in the configuration
+        file. If used with an argument, returns the content of that
+        particular block in the form of hashref:
+
+            my @blocks = $cfg->block();
 
     *   write() - saves the modifications to the configuration file.
         Config::Simple will call write() for you automatically if 'autosave'

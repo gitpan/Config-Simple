@@ -1,5 +1,5 @@
 package Config::Simple;
-# $Id: Simple.pm,v 3.7 2002/11/23 10:27:15 sherzodr Exp $
+# $Id: Simple.pm,v 3.9 2002/12/17 16:29:14 sherzodr Exp $
 
 use strict;
 use Carp 'croak';
@@ -15,7 +15,7 @@ sub import {
     }
 }
 
-($VERSION) = '$Revision: 3.7 $' =~ m/Revision:\s*(\S+)/;
+($VERSION) = '$Revision: 3.9 $' =~ m/Revision:\s*(\S+)/;
 
 # Default namespace as suggested by Ruslan U. Zakirov <cubic@wr.miee.ru>
 $DEFAULTNS = "default";
@@ -310,6 +310,24 @@ sub param {
 
 
 
+
+sub block {
+    my $self = shift;
+
+    if ( @_ ) {
+        return $self->_get_block(@_);
+    }
+
+    return keys %{$self->{_data}};
+}
+
+
+
+
+
+
+
+
 sub delete {
     my $self = shift;
 
@@ -517,7 +535,7 @@ help you with it.
 
 =head1 REVISION
 
-This manual refers to $Revision: 3.7 $
+This manual refers to $Revision: 3.9 $
 
 =head1 CONFIGURATION FILE SYNTAX
 
@@ -709,8 +727,17 @@ We can access the above block like so:
 
 Used to create a new block or redefine the existing one.
 
-
 =back
+
+
+=item block()
+
+Returns the list of all the avialable blocks in the configuration file.
+If used with an argument, returns the content of that particular block
+in the form of hashref:
+
+    my @blocks = $cfg->block();
+
 
 =item *
 

@@ -1,7 +1,7 @@
 
 RCS file: /home/sherzodr/CVS/modules/Config/Simple/Simple.pm,v
 Working file: Simple.pm
-head: 3.7
+head: 3.9
 branch:
 locks: strict
 access list:
@@ -9,8 +9,16 @@ symbolic names:
 	start: 1.1.1.1
 	UltraCgis: 1.1.1
 keyword substitution: kv
-total revisions: 27;	selected revisions: 27
+total revisions: 29;	selected revisions: 29
 description:
+----------------------------
+revision 3.9
+date: 2002/12/17 16:29:14;  author: sherzodr;  state: Exp;  lines: +13 -4
+*** empty log message ***
+----------------------------
+revision 3.8
+date: 2002/12/17 16:27:17;  author: sherzodr;  state: Exp;  lines: +21 -3
+new method, block() has been added
 ----------------------------
 revision 3.7
 date: 2002/11/23 10:27:15;  author: sherzodr;  state: Exp;  lines: +55 -5

@@ -1,5 +1,5 @@
 
-# $Id: default.t,v 2.8 2002/11/23 10:07:21 sherzodr Exp $
+# $Id: default.t,v 2.9 2002/12/17 16:27:20 sherzodr Exp $
 use strict;
 use Test;
 use Config::Simple;
@@ -33,5 +33,7 @@ my $author_block = $cfg->param(-block=>'author');
 
 ok($author_block->{l_name}, "Ruzmetov");
 ok($author_block->{nick}, $cfg->param('author.nick') );
+
+die $cfg->block();
 
 
