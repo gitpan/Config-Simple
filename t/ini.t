@@ -10,10 +10,10 @@ use Data::Dumper;
 use FindBin '$RealBin';
 use File::Spec;
 BEGIN {
-  plan tests => 17;
+  plan tests => 18;
 }
 
-require Config::Simple;
+use Config::Simple;
 ok(1);
 #########################
 
@@ -46,11 +46,13 @@ ok( $cfg->param(-block=>'Project')->{Count} == 3);
 $cfg->param(-block=>'Project', -value=>{Count=>3, set_block=>['working', 'really'], Index=>1, 'Multiple Columns'=>20});
 ok($cfg->param('Project.set_block')->[0] eq 'working');
 
-
 my $names = $cfg->param('Project\100.Names');
 ok(ref($names) eq 'ARRAY');
 ok($cfg->write());
 
 
+# now testing the new syntax:
+my $data = Config::Simple->parse_ini_file($ini_file);
+ok(ref($data) eq 'HASH');
 
 

@@ -1,5 +1,15 @@
  Change log for Config::Simple
-  $Date: 2003/04/19 21:20:56 $
+  $Date: 2003/04/29 19:21:07 $
+
+4.55
+    * vars() was buggy if a key in the configuration file was a list and the second
+      element was 0 (zero).
+
+4.54
+    * parse_inif_file(), parse_cfg_file() and parse_http_file()
+      are optimized to be used as static methods that return
+      the file contents as hashref.
+    * more tests performed against some reported bug reports
 
 4.53
     * write() and dump() methods open files with 0666 permission
@@ -83,4 +93,4 @@
     * much improved write()
 
 
-$Revision: 3.25 $
+$Revision: 3.28 $

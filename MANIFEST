@@ -4,6 +4,8 @@ MANIFEST.SKIP
 Makefile.PL
 README
 Simple.pm
+t/bug.cfg
+t/bug.t
 t/create.t
 t/import.t
 t/ini.t

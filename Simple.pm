@@ -1,21 +1,23 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.48 2003/04/19 21:20:56 sherzodr Exp $
+# $Id: Simple.pm,v 3.50 2003/04/29 01:42:25 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
 # it's too slow for production environment
 #use diagnostics;
 use Carp;
-use Fcntl (':DEFAULT', ':flock');
+use Fcntl qw(:DEFAULT :flock);
 use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 use AutoLoader 'AUTOLOAD';
 
-$VERSION   = '4.53';
+
+$VERSION   = '4.55';
 $DEFAULTNS = 'default';
 
 sub import {
+  my $class = shift;
   for ( @_ ) {
     if ( $_ eq '-lc'      ) { $LC = 1;    next; }
     if ( $_ eq '-strict'  ) { $USEQQ = 1; next; }
@@ -147,10 +149,16 @@ sub read {
   $self->{_SYNTAX} = $self->guess_syntax(\*FH) or return undef;
 
   # call respective parsers
-  
-  $self->{_SYNTAX} eq 'ini'     and return $self->parse_ini_file(\*FH);
-  $self->{_SYNTAX} eq 'simple'  and return $self->parse_cfg_file(\*FH);
-  $self->{_SYNTAX} eq 'http'    and return $self->parse_http_file(\*FH);
+
+  if ( $self->{_SYNTAX} eq 'ini' ) {
+    return $self->{_DATA} = $self->parse_ini_file($file);
+  } elsif ( $self->{_SYNTAX} eq 'simple' ) {
+    return $self->{_DATA} = $self->parse_cfg_file(\*FH);
+  } elsif ( $self->{_SYNTAX} eq 'http' ) {
+    return $self->{_DATA} = $self->parse_http_file(\*FH);
+  }
+
+  die "Something went wrong. No supported configuration file syntax found";
 }
 
 
@@ -164,6 +172,10 @@ sub close {
   }  
   return 1;
 }
+
+
+
+
 
 # tries to guess the syntax of the configuration file.
 # returns 'ini', 'simple' or 'http'.
@@ -214,7 +226,6 @@ sub guess_syntax {
 
   $self->error("Couldn't identify the syntax used");
   return undef;
-    
 
 }
 
@@ -222,12 +233,27 @@ sub guess_syntax {
 
 
 
-
-
 sub parse_ini_file {
-  my ($self, $fh) = @_;
+  my ($class, $fh) = @_;
+
+  my $close_fh = 0;
+  unless ( ref($fh) eq 'GLOB' ) {
+    unless (sysopen(CFG_FILE, $fh, O_RDONLY) ) {
+      $errstr = "couldn't open $fh for reading: $!";
+      return undef;
+    }    
+    $fh = \*CFG_FILE;
+    $close_fh = 1;
+  }
+  unless(flock($fh, LOCK_SH) ) {
+    $errstr = "couldn't acquire shared lock on $fh: $!";
+    return undef;
+  }
   
-  seek($fh, 0, 0) or croak "Couldn't seek($fh, 0, 0) in '$self->{_FILE_NAME}': $!";
+  unless ( seek($fh, 0, 0) ) {
+    $errstr = "couldn't seek to the beginning of the file: $!";
+    return undef;
+  }
 
   my $bn = $DEFAULTNS;
   my %data = ();
@@ -255,12 +281,17 @@ sub parse_ini_file {
     # parsing key/value pairs
     $line =~ /^\s*([^=]*\w)\s*=\s*(.*)\s*$/  and $data{$bn}->{lcase($1)}=[parse_line(READ_DELIM, 0, $2)], next;
     # if we came this far, the syntax couldn't be validated:
-    $self->error("Syntax error on line $. '$line'");
+    $errstr = "syntax error on line $. '$line'";
+    return undef;    
+  }
+  unless(flock($fh, LOCK_UN) ) {
+    $errstr = "couldn't unlock file: $!";
     return undef;
   }
-  $self->{_DATA} = \%data;
-  CORE::close($fh) or die $!;
-  return wantarray ? %data : \%data;
+  if ( $close_fh ) {
+    CORE::close($fh);
+  }
+  return \%data;
 }
 
 
@@ -274,12 +305,26 @@ sub lcase {
 
 
 sub parse_cfg_file {
-  my ($self, $fh) = @_;
+  my ($class, $fh) = @_;
 
-  unless ( defined $fh ) {
-    $fh = $self->{_FILE_HANDLE} or die "'_FILE_HANDLE' is not defined";
+  my $close_fh = 0;
+  unless ( ref($fh) eq 'GLOB' ) {
+    unless(sysopen(CFG_FILE, $fh, O_RDONLY)) {
+      $errstr = "couldn't open $fh for reading: $!";
+      return undef;
+    }    
+    $fh = \*CFG_FILE;
+    $close_fh = 1;
   }
-  seek($fh, 0, 0) or croak "Couldn't seek($fh, 0, 0) in '$self->{_FILE_NAME}':$!";
+  unless ( flock($fh, LOCK_SH) ) {
+    $errstr = "couldn't get shared lock on $fh: $!";
+    return undef;
+  }
+
+  unless ( seek($fh, 0, 0) ) {
+    $errstr = "couldn't seek to the start of the file: :$!";
+  }
+
   my %data = ();
   my $line;
   while ( defined($line=<$fh>) ) {
@@ -292,26 +337,43 @@ sub parse_cfg_file {
     # parsing key/value pairs
     $line =~ /^\s*([\w-]+)\s+(.*)\s*$/ and $data{lcase($1)}=[parse_line(READ_DELIM, 0, $2)], next;
     # if we came this far, the syntax couldn't be validated:
-    $self->error("Syntax error on line $.: '$line'");
+    $errstr = "syntax error on line $.: '$line'";
     return undef;
   }
-  $self->{_DATA} = \%data;
-  CORE::close($fh) or die $!;
-  return wantarray ? %data : \%data;
+  unless ( flock($fh, LOCK_UN) ) {
+    $errstr = "couldn't unlock the file: $!";
+    return undef;
+  }
+  
+  if ( $close_fh ) {
+    CORE::close($fh);
+  }
+  return \%data;
 }
 
 
 
-
-
-
 sub parse_http_file {
-  my ($self, $fh) = @_;
+  my ($class, $fh) = @_;
 
-  unless ( defined $fh ) {
-    $fh = $self->{_FILE_HANDLE} or die "'_FILE_HANDLE' is not defined";
+  my $close_fh = 0;
+  unless ( ref($fh) eq 'GLOB' ) {
+    unless( sysopen(CFG_FILE, $fh, O_RDONLY) ) {
+      $errstr = "couldn't open $fh for reading: $!";
+      return undef;
+    }
+    $fh = \*CFG_FILE;
+    $close_fh = 1;
   }
-  seek($fh, 0, 0) or croak "Couldn't seek($fh, 0, 0) in '$self->{_FILE_NAME}':$!";
+  unless ( flock($fh, LOCK_SH) ) {
+    $errstr = "couldn't get shared lock on file: $!";
+    return undef;
+  }
+
+  unless( seek($fh, 0, 0) ) {
+    $errstr = "couldn't seek to the start of the file: $!";
+    return undef;
+  }
   my %data = ();
   my $line;
   while ( defined($line= <$fh>) ) {
@@ -325,14 +387,18 @@ sub parse_http_file {
     # parsing key/value pairs:
     $line =~ /^\s*([\w-]+)\s*:\s*(.*)$/  and $data{lcase($1)}=[parse_line(READ_DELIM, 0, $2)], next;
     # if we came this far, the syntax couldn't be validated:
-    $self->error("Syntax error on line $.: '$line'");
+    $errstr = "syntax error on line $.: '$line'";
     return undef;
   }
-  $self->{_DATA} = \%data;
-  CORE::close($fh) or die $!;
-  return wantarray ? %data : \%data;
+  unless ( flock($fh, LOCK_UN) ) {
+    $errstr = "couldn't unlock file: $!";
+    return undef;
+  }
+  if ( $close_fh ) {
+    CORE::close($fh);
+  }
+  return \%data;
 }
-
 
 
 sub param {
@@ -1258,7 +1324,7 @@ sub vars {
   if ( $syntax eq 'ini' ) {
     while ( my ($block, $values) = each %{$self->{_DATA}} ) {
       while ( my ($k, $v) = each %{$values} ) {
-        $vars{"$block.$k"} = $v->[1] ? $v : $v->[0];
+        $vars{"$block.$k"} = defined($v->[1]) ? $v : $v->[0];
       }
     }
   } else {
