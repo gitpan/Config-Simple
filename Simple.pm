@@ -1,6 +1,6 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.42 2003/04/15 20:33:28 sherzodr Exp $
+# $Id: Simple.pm,v 3.43 2003/04/16 05:51:03 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
@@ -12,7 +12,7 @@ use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 use AutoLoader 'AUTOLOAD';
 
-$VERSION   = '4.49';
+$VERSION   = '4.50';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -1346,18 +1346,6 @@ sub verbose {
 }
 
 
-
-sub block {
-  my $self = shift;
-
-  
-
-
-
-
-
-
-}
 
 
 #------------------

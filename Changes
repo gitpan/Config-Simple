@@ -1,5 +1,9 @@
  Change log for Config::Simple
-  $Date: 2003/04/15 20:33:28 $
+  $Date: 2003/04/16 05:51:03 $
+
+4.50
+    * extra empty block() was removed. Thanks to Vitaly Kushneriuk 
+      for this note
 
 4.49
     * get_block() method now returns a list of all the available
@@ -68,4 +72,4 @@
     * much improved write()
 
 
-$Revision: 3.21 $
+$Revision: 3.22 $
