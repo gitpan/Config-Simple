@@ -1,17 +1,17 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.27 2003/02/24 06:08:40 sherzodr Exp $
+# $Id: Simple.pm,v 3.29 2003/03/07 03:08:59 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
 # it's too slow for production environment
-#use diagnostics;
+use diagnostics;
 use Carp;
 use Fcntl (':DEFAULT', ':flock');
 use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 
-$VERSION   = '4.41';
+$VERSION   = '4.42';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -219,19 +219,32 @@ sub parse_ini_file {
 
   my $bn = $DEFAULTNS;
   my %data = ();
-  while ( <$fh> ) {
+  my $line;
+  while ( defined($line=<$fh>) ) {
     # skipping comments and empty lines:
-    /^(\n|\#|;)/  and next;
-    /\w/          or  next;    
-    chomp();
-    s/^\s+//g;
-    s/\s+$//g;
+
+    chomp $line;
+    
+    # Perl Cookbook 8.1
+    if ( $line =~ s/\\\s*$// ) {
+      my $next_line = <$fh>;
+      $next_line =~ s/^\s+//;      
+      #die $next_line;
+      $line .= $next_line;
+      redo unless eof($fh);
+    }
+    $line =~ /^(\n|\#|;)/  and next;
+    $line =~ /\S/          or  next;    
+    $line =~ s/^\s+//g;
+    $line =~ s/\s+$//g;    
+
+    
     # parsing the block name:
-    /^\s*\[\s*([^\]]+)\s*\]$/       and $bn = lcase($1), next;
+    $line =~ /^\s*\[\s*([^\]]+)\s*\]$/       and $bn = lcase($1), next;
     # parsing key/value pairs
-    /^\s*([^=]*\w)\s*=\s*(.*)\s*$/  and $data{$bn}->{lcase($1)}=[parse_line(READ_DELIM, 0, $2)], next;
+    $line =~ /^\s*([^=]*\w)\s*=\s*(.*)\s*$/  and $data{$bn}->{lcase($1)}=[parse_line(READ_DELIM, 0, $2)], next;
     # if we came this far, the syntax couldn't be validated:
-    $self->error("Syntax error on line $. '$_'");
+    $self->error("Syntax error on line $. '$line'");
     return undef;
   }
   $self->{_DATA} = \%data;
@@ -257,17 +270,18 @@ sub parse_cfg_file {
   }
   seek($fh, 0, 0) or croak "Couldn't seek($fh, 0, 0) in '$self->{_FILE_NAME}':$!";
   my %data = ();
-  while ( <$fh> ) {
+  my $line;
+  while ( defined($line=<$fh>) ) {
     # skipping comments and empty lines:
-    /^(\n|\#)/  and next;
-    /\w/        or  next;    
-    chomp();
-    s/^\s+//g;
-    s/\s+$//g;
+    $line =~ /^(\n|\#)/  and next;
+    $line =~ /\S/        or  next;    
+    chomp $line;
+    $line =~ s/^\s+//g;
+    $line =~ s/\s+$//g;
     # parsing key/value pairs
-    /^\s*([\w-]+)\s+(.*)\s*$/ and $data{lcase($1)}=[parse_line(READ_DELIM, 0, $2)], next;
+    $line =~ /^\s*([\w-]+)\s+(.*)\s*$/ and $data{lcase($1)}=[parse_line(READ_DELIM, 0, $2)], next;
     # if we came this far, the syntax couldn't be validated:
-    $self->error("Syntax error on line $.: '$_'");
+    $self->error("Syntax error on line $.: '$line'");
     return undef;
   }
   $self->{_DATA} = \%data;
@@ -288,18 +302,19 @@ sub parse_http_file {
   }
   seek($fh, 0, 0) or croak "Couldn't seek($fh, 0, 0) in '$self->{_FILE_NAME}':$!";
   my %data = ();
-  while ( <$fh> ) {
+  my $line;
+  while ( defined($line= <$fh>) ) {
     # skipping comments and empty lines:
-    /^(\n|\#)/  and next;
-    /\w/        or  next;
+    $line =~ /^(\n|\#)/  and next;
+    $line =~ /\S/        or  next;
     # stripping $/:
-    chomp();
-    s/^\s+//g;
-    s/\s+$//g;
+    chomp $line;
+    $line =~ s/^\s+//g;
+    $line =~ s/\s+$//g;
     # parsing key/value pairs:
-    /^\s*([\w-]+)\s*:\s*(.*)$/  and $data{lcase($1)}=[parse_line(READ_DELIM, 0, $2)], next;
+    $line =~ /^\s*([\w-]+)\s*:\s*(.*)$/  and $data{lcase($1)}=[parse_line(READ_DELIM, 0, $2)], next;
     # if we came this far, the syntax couldn't be validated:
-    $self->error("Syntax error on line $.: '$_'");
+    $self->error("Syntax error on line $.: '$line'");
     return undef;
   }
   $self->{_DATA} = \%data;
@@ -403,9 +418,9 @@ sub get_block {
     croak "get_block() is supported only in 'ini' files";
   }
   my $rv = {};
-  while ( my ($k, $v) = %{$self->{_DATA}->{$block_name}} ) {
+  while ( my ($k, $v) = each %{$self->{_DATA}->{$block_name}} ) {
     $v =~ s/\\n/\n/g;
-    $rv->{$k} = $v;
+    $rv->{$k} = $v->[1] ? $v : $v->[0];
   }
   return $rv;
 }
@@ -423,7 +438,7 @@ sub set_block {
   my $processed_values = {};
   while ( my ($k, $v) = each %$values ) {
     $v =~ s/\n/\\n/g;
-    $processed_values->{$k} = [$v];
+    $processed_values->{$k} = (ref($v) eq 'ARRAY') ? $v : [$v];
   }
 
   $self->{_DATA}->{$block_name} = $processed_values;
@@ -1188,6 +1203,31 @@ All the names will be uppercased. Non-alphanumeric strings in the values will be
 - class method. Accepts the name of the file to import names from. Additional arguments
 will be passed to import_names(). Returns underlying Config::Simple object
 
+=item get_block($name)
+
+is mostly used for accessing blocks in ini-styled configuration files. 
+Returns a hashref of all the key/value pairs of a given block. Also supported by param()
+method with the help of "-block" option:
+
+  $hash = $cfg->get_block('Project');
+  # is the same as saying:
+  $hash = $cfg->param(-block=>'Project');
+
+=item set_block($name, $values)
+
+used in assigning contents to a block in ini-styled configuration files. $name should
+be the name of a [block], and $values is assumed to be a hashref mapping key/value pairs.
+Also supported by param() method with the help of "-block" and "-value" (or "-values") options:
+
+  $cfg->set_block('Project', {Count=>3, 'Multiple Column' => 20});
+  # is the same as:
+  $cfg->param(-block=>'Project', -value=>{Count=>3, 'Multiple Column' => 20});
+
+Warning: all the contents of a block, if previously existed will be wiped out.
+If you want to set specific key/value pairs, use explicit method:
+
+  $cfg->param('Project.Count', 3);
+
 =item as_string()
 
 - returns the configuration file as a chunk of text. It is the same text used by
@@ -1221,6 +1261,10 @@ manual. Default indentation is 2.
 
 =item *
 
+Support for lines with continuation character, '\'.
+
+=item *
+
 Retaining comments while writing the configuration files back and/or methods for
 manipulating comments. Everyone loves comments!
 
@@ -1241,7 +1285,7 @@ Submit bugs to Sherzod B. Ruzmetov E<lt>sherzodr@cpan.orgE<gt>
 
 =item Michael Caldwell (mjc@mjcnet.com)
 
-whitespace support, C<-lc> switch
+whitespace support, C<-lc> switch and for various bug fixes
 
 =item Scott Weinstein (Scott.Weinstein@lazard.com)
 

@@ -6,9 +6,10 @@
 
 use strict;
 use Test;
+use Data::Dumper;
 use File::Spec;
 BEGIN {
-  plan tests => 13;
+  plan tests => 16;
 }
 
 require Config::Simple;
@@ -34,6 +35,15 @@ ok($cfg->param('Project\1.Count', 9));
 
 my @names = $cfg->param('Project\100.Names');
 ok(scalar(@names) == 2);
+
+# testing get_block():
+ok( ref($cfg->param(-block=>'Project')) eq 'HASH' );
+#die Dumper($cfg->param(-block=>'Project'));
+ok( $cfg->param(-block=>'Project')->{Count} == 3);
+
+$cfg->param(-block=>'Project', -value=>{Count=>3, set_block=>['working', 'really'], Index=>1, 'Multiple Columns'=>20});
+ok($cfg->param('Project.set_block')->[0] eq 'working');
+
 
 my $names = $cfg->param('Project\100.Names');
 ok(ref($names) eq 'ARRAY');
