@@ -13,7 +13,7 @@ use vars qw($VERSION @ISA @EXPORT $MD5 $errstr $LOCK_FILE);
 
 @ISA = qw(Exporter);
 
-$VERSION = "2.5";
+$VERSION = "2.8";
 
 eval {
     for ( @Fcntl::EXPORT ) {
@@ -67,7 +67,8 @@ sub new {
 
     # creating a digest of the file...
     if ( $MD5 and -e $self->{_options}{filename} ) {
-        my $fh = new IO::File $self->{_options}->{filename}, O_RDONLY  or carp "Couldn't open $self->{_options}{filename}, $!";
+        my $fh = new IO::File $self->{_options}->{filename}, O_RDONLY
+            or carp "Couldn't open $self->{_options}{filename}, $!";
         flock ($fh, LOCK_SH|LOCK_NB) or carp "Couldn't acquire a lock on $self->{_options}{filename}, $!";
 
         my $md5 = Digest::MD5->new();
@@ -105,11 +106,13 @@ sub _init {
     local $/ = "\n";
     while ( <$fh> ) {
 
+        # whitespace support (\s*) added by Michael Caldwell <mjc@mjcnet.com>
+        # date: Tuesday, May 14, 2002
         $after_dot  and $self->{'.'} .= $_, next;
-        /^(;|\n|\#)/    and next;   # deal with \n and comments
-        /^\[([^\]]+)\]/ and $title = $1, next;
-        /^([^=]+)=(.+)/ and $self->{_cfg}->{$title}{$1} = $2, $self->{_named}{"$title.$1"} = $2, next;
-        /^\./           and $after_dot = 1, next;   # don't read anything after the sole dot (.)
+        /^\s*(;|\n|\#)/    and next;   # deal with \n and comments
+        /^\s*\[([^\]]+)\]\s*$/ and $title = $1, next;
+        /^\s*([^=]+?)\s*=\s*(.+?)\s*$/ and $self->{_cfg}->{$title}{$1} = $self->{_named}{"$title.$1"} = $2, next;
+        /^\./           and $after_dot = 1, next;   # don't parse anything after the sole dot (.)
 
         chomp ($_);
         my $msg = "Syntax error in line $. of $file: \"$_\"";
@@ -288,7 +291,7 @@ sub param_hash {
 sub write {
     my $self = shift;
 
-    my $new_file = $_[0];
+    my $new_file = $_[0] || undef;
     my $file = $self->{_options}->{filename};
     my $lock = $self->{_options}->{lockfile};
     my $mode = $self->{_options}->{mode};
@@ -305,16 +308,14 @@ sub write {
 
         if ( ($self->{_checksum} ne $md5->hexdigest) and (not $self->{_tied_access} ) ) {
             carp "File's contents have been modified by the third party. Creating a backup copy of the old one";
-            File::Copy::copy($file, $file . ".bk");
+            copy($file, $file . ".bk");
         }
     }
 
-    my $lck = new IO::File($lock, O_RDONLY|O_CREAT) or $errstr = "Couldn't access $lock, $!", return undef;
+    my $lck = new IO::File($lock, O_RDONLY | O_CREAT) or $errstr = "Couldn't access $lock, $!", return undef;
     flock($lck, LOCK_EX) or $errstr = "Couldn't get exclusive lock on $lock, $!", return undef;
 
-    $file = $new_file || $file;
-
-    my $fh = new IO::File($file, O_RDWR|O_CREAT|O_TRUNC, 0751) or $errstr = "Couldn't truncate $file, $!", return undef;
+    my $fh = new IO::File($new_file || $file, O_RDWR | O_CREAT | O_TRUNC, 0666) or $errstr = "Couldn't truncate $file, $!", return undef;
     select ($fh);
 
     print "; Maintained by Config::Simple/$VERSION\n";
@@ -397,21 +398,19 @@ sub clone {
 
 
 sub error {
-    my $self = shift;
+    my ($self, $dump) = @_;
+
+    if ( $dump ) {
+        require Data::Dumper;
+        my $fh = new IO::File ('Config-Simple.core', O_RDWR|O_CREAT|O_TRUNC, 0644);
+        $fh->print(Data::Dumper::Dumper($self));
+        $fh->close();
+    }
 
     return $errstr;
 
 }
 
-
-
-
-sub dump {
-    my $self = shift;
-
-    require Data::Dumper;
-    return Data::Dumper::Dumper($self);
-}
 
 
 
@@ -423,11 +422,11 @@ package Config::Simple::Tie;
 require Tie::Hash;
 use vars qw(@ISA);
 
-@ISA = qw(Config::Simple Tie::StdHash);
+@ISA = qw(Config::Simple Tie::Hash);
 
 
 
-# TIEHASH patch submited by Scott.Weinstein@lazard.com
+# TIEHASH() patch submited by Scott.Weinstein@lazard.com
 # on Tue, 2 Apr 2002 13:47:34 -0500
 sub TIEHASH {
     my $class = shift;
@@ -503,11 +502,11 @@ sub DELETE {
 
 
 
-sub EXISTS {
-    my $self = shift;
-
-    return exists $self->{_named}{shift};
-}
+#sub EXISTS {
+#    my $self = shift;
+#
+#    return exists $self->{_named}{shift};
+#}
 
 
 
@@ -575,10 +574,9 @@ in your Perl application:
 
 
 
-
 =head1 NOTE
 
-This documentation refers to version 2.5 of Config::Simple. If you have a version
+This documentation refers to version 2.8 of Config::Simple. If you have a version
 older than this, please update it to the latest release.
 
 =head1 DESCRIPTION
@@ -590,8 +588,8 @@ C<Config::Simple> modules defines too classes, C<Config::Simple> and C<Config::S
 Latter will allow accessing the Configuration files via tied hash variables. In this case,
 modifications to the values of the hash will reflect in the configuration file right away.
 
-Unlike the case with C<Config::Simple::Tie>, C<Config::Simple> classes uses simple
-OO style, and requires calling method L<write()> if you want to update the contents of
+Unlike the case with C<Config::Simple::Tie>, C<Config::Simple> uses simple
+OO style, and requires calling  L<write()> if you want to update the contents of
 the file. Otherwise all the manipulations will take place in memory.
 
 Syntax for Config::Simple::Tie is:
@@ -655,7 +653,7 @@ For example, from the above sample.cfg file, following names could be retrieved:
 block1.key1, block1.key2, block2.key1 and block2.key2 etc.
 
 Here is the configuration file that I use in most of my CGI applications, and I'll be using it
-in most of the examples throughout this manual:
+in the examples throughout this manual:
 
     ;app.cfg
 
@@ -667,10 +665,32 @@ in most of the examples throughout this manual:
     RaiseError=1
     PrintError=1
 
-=head2 fcntl.h Constants
+=head2 WHITESPACE
 
-by default Config::Simple exports C<O_RDONLY>, C<O_RDWR>, C<O_CREAT>, C<O_EXCL> L<fcnl.h|Fcntl> (file control) constants.
-When you create Config::Simple object by passing it a filename, it will try to read the file.
+Prior to version 2.8, the following syntax produced a syntax error if C<c=E<gt>1>
+swith in the new() was turned on:
+
+    [mysql]
+    # this is a comment
+    host= ultracgis
+    login =sherzodr
+    password = secret
+
+because of the whitespace surrounding C<=>. The problem was fixed in version 2.8
+of the library (thanks to Michael Caldwell, see L<credits|"CREDITS">), and all the following whitespace combinations
+are considered valid:
+
+        [mysql]
+        # this is a comment
+    host = ultracgis
+      login =sherzodr
+     password =     secret
+
+This will enable custom identation in your config files.
+
+=head2 fcntl.h CONSTANTS
+
+By default Config::Simple exports C<O_RDONLY>, C<O_RDWR>, C<O_CREAT>, C<O_EXCL> L<fcnl.h|Fcntl> (file control) constants. When you create Config::Simple object by passing it a filename, it will try to read the file.
 If it fails it creates the file. This is a default behavior. If you want to control this behavior,
 you'll need to pass mode with your desired fcntl O_* constants to the constructor:
 
@@ -699,7 +719,7 @@ fcntl constants:
     +===========+============================================================+
     | constant  |   description                                              |
     +===========+============================================================+
-    | O_RDONLY  |  opens a file for reading only, fails if doesn't exist    |
+    | O_RDONLY  |  opens a file for reading only, fails if doesn't exist     |
     +-----------+------------------------------------------------------------+
     | O_RDWR    |  opens a file for reading and writing                      |
     +-----------+------------------------------------------------------------+
@@ -707,16 +727,6 @@ fcntl constants:
     +-----------+------------------------------------------------------------+
     | O_EXCL    |  creates a file if it doesn't already exist                |
     +-----------+------------------------------------------------------------+
-
-
-
-
-
-
-
-
-
-
 
 =head1 METHODS
 
@@ -852,19 +862,25 @@ Returns the value of $Config::Simple::errstr
 
 =head1 BUGS
 
-Hopefully none.
-
 Please send them to my email if you detect any with a sample code
 that triggers that bug. Even if you don't have any, just let me know that you are using it.
 It just makes me feel good ;-)
 
 =head1 CREDITS
 
+Following people contributed patches and/or suggestions to the Config::Simple.
+In chronological order:
+
 =over 4
+
+=item Michael Caldwell (mjc@mjcnet.com)
+
+Added L<witespace support|"WHITESPACE"> in the configuration files, which
+enables custom identation
 
 =item Scott Weinstein (Scott.Weinstein@lazard.com)
 
-Submited the patch for the C<TIEHASH()> method in C<Config::Simple::Tie> class.
+Fixed the bugs in the TIEHASH method.
 
 =back
 
@@ -882,7 +898,6 @@ Submited the patch for the C<TIEHASH()> method in C<Config::Simple::Tie> class.
 
 =head1 SEE ALSO
 
-L<perl>
-
+L<Config::General>, L<AppConfig>, L<Config::IniFiles>
 
 =cut
