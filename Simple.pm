@@ -1,40 +1,13 @@
 package Config::Simple;
-
-require 5.003;
+# $Id: Simple.pm,v 3.0 2002/11/03 02:59:22 sherzodr Exp $
 
 use strict;
 use Carp 'croak';
-use File::Copy;
-use Fcntl qw(:DEFAULT :flock);
+use Fcntl (':DEFAULT', ':flock');
 
-require Exporter;
-use vars qw($VERSION @ISA @EXPORT $MD5 $errstr $LOCK_FILE);
+use vars qw($VERSION);
 
-@ISA = qw(Exporter);
-
-$VERSION = "2.82";
-
-eval {
-    for ( @Fcntl::EXPORT ) {
-        /^(O_|LOCK_)/   or next;
-        push @EXPORT, $_;
-    }
-    Fcntl->import(@EXPORT);
-};
-
-
-$MD5 = 1;
-
-eval {  require Digest::MD5 };
-if ( $@ ) {
-    $MD5 = 0;    
-}
-
-
-
-
-
-
+($VERSION) = '$Revision: 3.0 $' =~ m/Revision:\s*(\S+)/;
 
 
 sub new {
@@ -42,366 +15,35 @@ sub new {
     $class = ref($class) || $class;
 
     my $self = {
-        _options    =>  {
-            filename    => undef,
-            mode        => O_RDONLY|O_CREAT,
-            lockfile    => "",
-            c           => 1,
-            @_,
+        _options => {
+            encoder => sub { my($string)=@_; $string=~s/\n/\\n/g; return $string },
+            decoder => sub { my($string)=@_; $string=~s/\\n/\n/g; return $string },
+            autosave => 0,
+            filename => 0,
         },
-        _cfg        => {},
-        _checksum   => undef,
-        _tied_access => undef,
+        _data    => { },
+
     };
 
-    # deciding a name for a lock file
-    unless ( $self->{_options}{lockfile} ) {
-        $self->{_options}{lockfile} = $self->{_options}{filename} . ".lock";
+    # If there's only one argument, consider it's the filename
+    if ( @_ == 1 ) {
+        $self->{_options}->{filename} = $_[0];
+
+    } else {
+        # if there're more than one arguments, consider them as key/value pairs
+        $self->{_options} = {
+            encoder => sub { my($string)=@_; $string=~s/\n/\\n/g; return $string },
+            decoder => sub { my($string)=@_; $string=~s/\\n/\n/g; return $string },
+            autosave => 0,
+            filename => 0,
+            @_, };
     }
 
-    $self->{_options}{filename} ||=$self->{_options}{_filename};
+    bless($self, $class);
 
-
-    # creating a digest of the file...
-    if ( $MD5 and -e $self->{_options}{filename} ) {
-		sysopen (FH, $self->{_options}->{filename}, O_RDONLY) or croak "Could not open $self->{_options}->{filename}";
-        flock (FH, LOCK_SH|LOCK_NB) or croak "Couldn't acquire a lock on $self->{_options}{filename}, $!";
-
-        my $md5 = Digest::MD5->new();
-        $md5->addfile(\*FH);
-        $self->{_checksum} = $md5->hexdigest();
-        close(FH);
+    if ( $self->{_options}->{filename} ) {
+        $self->read();
     }
-
-    bless $self => $class;
-
-    $self->_init() or return undef;
-
-    return $self;
-}
-
-
-
-
-sub DESTROY {   }
-
-
-
-sub _init {
-    my $self = shift;
-
-    my $mode = $self->{_options}->{mode};
-    my $file = $self->{_options}{filename};
-
-	sysopen (FH, $file, $mode) or croak "Could not open $file, $!";
-    flock (FH, LOCK_SH) or croak "Couldn't get lock on $file, $!";
-
-	my ($title, $after_dot);
-    #my $title = "";
-    #my $after_dot = 0;
-    local $/ = "\n";
-    while ( <FH> ) {
-
-        # whitespace support (\s*) added by Michael Caldwell <mjc@mjcnet.com>
-        # date: Tuesday, May 14, 2002
-        $after_dot  and $self->{'.'} .= $_, next;
-        /^\s*(;|\n|\#)/    and next;   # deal with \n and comments
-        /^\s*\[([^\]]+)\]\s*$/ and $title = $1, next;
-        /^\s*([^=]+?)\s*=\s*(.+?)\s*$/ and $self->{_cfg}->{$title}{$1} = $self->{_named}{"$title.$1"} = $2, next;
-        /^\./           and $after_dot = 1, next;   # don't parse anything after the sole dot (.)
-
-        chomp ($_);
-        my $msg = "Syntax error in line $. of $file: \"$_\"";
-        $self->{_options}{c}    and croak $msg;
-
-    }
-
-    close(FH);
-    return 1;
-}
-
-
-
-sub _tied_access {
-    my $self = shift;
-
-    $self->{_tied_access} = shift;
-}
-
-
-sub _get_block {
-    my $self = shift;
-
-    my ($block) =  @_;
-    my %hash = ();
-
-    for my $key ( keys %{ $self->{_cfg}{$block} } ) {
-        $hash{$key} = $self->_get_single_param($block, $key)
-    }
-
-    return \%hash;
-}
-
-
-sub _create_block {
-    my $self = shift;
-    my ($block, $values) = @_;
-
-    for my $key ( keys %{$values} ) {
-        $self->_set_single_param($block, $key, $values->{$key});
-    }
-
-}
-
-
-
-sub _get_single_param {
-    my $self = shift;
-    my ($block, $key) = @_;
-
-    my $value = $self->{_cfg}->{$block}->{$key} || "";
-    $value =~ s/\\n/\n/g;
-
-
-    # still not sure if it does the trick. Gotta check it out
-    if ( wantarray ) {
-
-        my @array = split /,/, $value;
-        return map { s/^\s+//, s/\s+$// } @array;
-
-    }
-
-
-    return $value;
-
-}
-
-
-
-sub _set_single_param {
-    my $self = shift;
-
-    my ($block, $key, $value) = @_;
-
-    $value =~ s/\n/\\n/g;
-    $self->{_cfg}->{$block}->{$key} = $value;
-    $self->{_named}->{"$block.$key"} = $value;
-
-}
-
-
-sub param {
-    my $self = shift;
-
-    # @b = $config->param();
-    unless ( scalar(@_) ) {
-        my %tmp = $self->param_hash();
-        return keys %tmp;
-    }
-
-    # $config->param('author.f_name');
-    if ( scalar(@_) == 1 ) {
-        my ($block, $key) = split /\./, $_[0];
-        return $self->_get_single_param($block, $key);
-    }
-
-
-    # implementing verion 2.0 API
-    my $args = {};
-    if ( scalar(@_) == 2 ) {
-        # $config->param('author.f_name', 'Shezrod');
-        my ($block, $key) = split /\./, $_[0];
-        if ( $block && $key ) {
-            $self->_set_single_param($block, $key, $_[1]);
-        }
-
-        $args = {
-            -block  => "",
-            -name   => "",
-            @_,
-        };
-
-        # $config->param(-block=>'author');
-        if ( $args->{'-block'} ) {
-            return $self->_get_block($args->{'-block'});
-        }
-
-        # $config->param(-name=>'author.f_name');
-        if ( $args->{'-name'} ) {
-            my ($block, $key) = split /\./, $args->{'-name'};
-            if ($block && $key) {
-                return $self->_get_single_param($block, $key);
-            }
-        }
-    }
-
-
-    $args = {
-        -block  => "",
-        -values => {},
-        -name   => "",
-        -value  => "",
-        @_,
-    };
-
-    if ( $args->{'-block'} and $args->{'-values'} ) {
-        # checking if `-values` is actually a hashref
-        unless ( ref( $args->{'-values'} ) eq 'HASH' ) {
-            croak "'-values' option requires a hash reference";
-        }
-        $self->_create_block($args->{'-block'}, $args->{'-values'});
-        return 1;
-    }
-
-
-    if ( $args->{'-name'} && $args->{'-value'} ) {
-        my ($block, $key) = split /\./, $args->{'-name'};
-        if ( $block && $key) {
-            $self->_set_single_param($block, $key, $args->{'-value'});
-            return 1;
-        }
-    }
-}
-
-
-
-
-
-
-# for backward compatability...
-sub set_param {
-    my $self = shift;
-
-    my ($name, $value) = @_;
-    my ($block, $key) = split /\./, $name;
-    $self->_set_single_param($block, $key, $value);
-
-}
-
-
-
-sub param_hash {
-    my $self = shift;
-
-    my %hash = ();
-    for my $block ( keys %{$self->{_cfg}} ) {
-        $block =~ m/^\./    and next;
-        for my $key ( keys %{ $self->{_cfg}{$block} } ) {
-            $hash{ $block . '.' . $key } = $self->_get_single_param($block, $key);
-        }
-    }
-
-    return %hash;
-}
-
-
-
-sub write {
-    my $self = shift;
-
-    my $new_file = $_[0] || undef;
-    my $file = $self->{_options}->{filename};
-    my $lock = $self->{_options}->{lockfile};
-    my $mode = $self->{_options}->{mode};
-
-    # checking if anything was changed manually while
-    # program was running...
-    if ( $MD5 and !$new_file ) {
-
-		sysopen (CHECKSUM, $self->{_options}->{filename}, O_RDONLY) 
-			or croak "Could not open $self->{_options}->{filename}, $!";
-        
-        flock (CHECKSUM, LOCK_SH) or croak "Couldn't acquire lock on $self->{_options}{filename}, $!";
-        my $md5 = Digest::MD5->new();
-        $md5->addfile(\*CHECKSUM);
-        close(CHECKSUM);
-
-        if ( ($self->{_checksum} ne $md5->hexdigest) and (not $self->{_tied_access} ) ) {            
-            File::Copy::copy($file, $file . ".bk");
-        }
-    }
-
-    sysopen (FH, $new_file || $file, O_RDWR|O_CREAT|O_TRUNC, 0664) or croak "Could not truncate the file, $!";
-	flock (FH, LOCK_EX) or croak "Could not  get lock on the configuration file";
-	select (FH);
-
-    print "; Maintained by Config::Simple/$VERSION\n";    
-    print "; ", "-" x 70, "\n\n";
-
-    while ( my($block, $values) = each %{ $self->{_cfg} } ) {
-
-        print "[$block]\n";
-        while ( my ($key, $value) = each %{$values} ) {
-            print "$key=$value\n";
-        }
-        print "\n";
-    }
-
-    if ( defined $self->{'.'} )  {
-        print ".\n";
-        print $self->{'.'};
-    }
-
-    select (STDOUT);
-	close (FH);
-
-    
-    
-
-}
-
-
-
-
-
-
-
-
-sub error {
-    my ($self, $dump) = @_;
-
-    if ( $dump ) {
-        require Data::Dumper;
-        my $fh = new IO::File ('Config-Simple.core', O_RDWR|O_CREAT|O_TRUNC, 0644);
-        $fh->print(Data::Dumper::Dumper($self));
-        $fh->close();
-    }
-
-    return $errstr;
-
-}
-
-
-
-
-
-
-
-package Config::Simple::Tie;
-
-require Tie::Hash;
-use vars qw(@ISA);
-
-@ISA = qw(Config::Simple Tie::Hash);
-
-
-
-# TIEHASH() patch submited by Scott.Weinstein@lazard.com
-# on Tue, 2 Apr 2002 13:47:34 -0500
-sub TIEHASH {
-    my $class = shift;
-    $class = ref($class) || $class;
-
-    my ($file, $mode, $check) = @_;
-
-    my $self = $class->Config::Simple::new(
-        filename=>  $file,
-        mode    =>  $mode,
-        c       =>  $check
-    );
-
-    $self->_tied_access(1) if ($self);
-
     return $self;
 }
 
@@ -410,76 +52,348 @@ sub TIEHASH {
 sub DESTROY {
     my $self = shift;
 
-    $self->_tied_access(0);
-}
+    if ( $self->{_options}->{autosave} ) {
+        $self->write();
+    }
 
-
-sub FETCH {
-    my $self = shift;
-    my $key = shift;
-
-    return $self->param($key);
-}
-
-
-sub STORE {
-    my $self = shift;
-    my $key = shift;
-    my $value = shift;
-
-    $self->param($key, $value);
-    return $self->write();
-}
-
-
-sub FIRSTKEY {
-    my $self = shift;
-
-    my $temp = keys %{$self->{_named}};
-    return scalar each %{$self->{_named}};
-}
-
-
-sub NEXTKEY {
-    my $self = shift;
-
-    return scalar each %{$self->{_named}};
-}
-
-
-sub DELETE {
-    my $self = shift;
-    my $name = shift;
-
-    my ($block, $key) = split /\./, $name;
-
-    delete $self->{_named}{$name};
-    delete $self->{_cfg}->{$block}->{$key};
-
-    $self->write();
-}
-
-
-
-
-#sub EXISTS {
-#    my $self = shift;
-#
-#    return exists $self->{_named}{shift};
-#}
-
-
-
-sub CLEAR {
-    my $self = shift;
-
-    for (keys %{$self->{_named}} ) {
-        $self->{_named} = {};
-        $self->{_cfg} = {};
+    if ( defined $self->{_fh} ) {
+        my $fh = $self->{_fh};
+        unless ( close ( $fh ) ) {
+            croak "Couldn't close $self->{_options}->{filename}: $!";
+        }
     }
 }
 
 
+
+
+
+sub read {
+    my ($self, $arg) = @_;
+
+    if ( defined $arg ) {
+        $self->{_options}->{filename} = $arg;
+    }
+
+    my $filename = $self->{_options}->{filename};
+
+    unless ( sysopen(CFG, $filename, O_RDWR|O_CREAT) ) {
+        croak "Couldn't read $filename: $!";
+    }
+    $self->{_fh} = \*CFG;
+    unless ( flock(CFG, LOCK_SH) ) {
+        croak "Couldn't LOCK_SH $filename: $!";
+    }
+
+    # whitespace support (\s*) added by Michael Caldwell <mjc@mjcnet.com>
+    # date: Tuesday, May 14, 2002
+    my ($blockname, $afterdot);
+    while ( <CFG> ) {
+        $afterdot                   and $self->{_after_dot} .= $_, next;
+        /^(\n|\#|;)/                and next;
+        /\s*\[([^\]]+)\]\s*/        and $blockname = lc($1), next;
+        /\s*([^=]+?)\s*=\s*(.+)/    and $self->{_data}->{$blockname}->{lc($1)}=$self->_decode($2), next;
+        /^\./                       and $afterdot=1, next;
+
+        # If we came this far, something smells fishy around here
+        croak "Syntax error on line $.:'$_'";
+    }
+
+    unless ( flock(CFG, LOCK_UN) ) {
+        croak "Couldn't LOCK_UN $filename: $!";
+    }
+}
+
+
+
+
+
+
+
+sub _get_block {
+    my ($self, $blockname) = @_;
+    return $self->{_data}->{$blockname};
+}
+
+
+
+
+
+
+
+
+sub _get_param {
+    my ($self, $blockname, $param) = @_;
+
+    # if $param doesn't exist, treat $blockname as $blockname.$param
+    unless ( defined $param ) {
+        ($blockname, $param) = split(/\./, $blockname);
+    }
+
+    unless ( defined $param ) {
+        croak "_get_param(): RTFM!";
+    }
+
+    return $self->{_data}->{$blockname}->{$param};
+}
+
+
+
+
+
+
+
+
+
+sub _set_param {
+    my ($self, $blockname, $param, $value) = @_;
+
+    if ( @_ < 3 ) {
+        croak "_set_param(): RTFM!";
+    }
+
+    # if the last argument, value is missing, treat $param as $value,
+    # and treat $blockanme as $blockname.$param
+    unless ( $value ) {
+        $value = $param;
+        ($blockname, $param) = split (/\./, $blockname);
+    }
+
+    unless ( $blockname ) {
+        croak "_set_param(): RTFM!";
+    }
+
+    $self->{_data}->{lc($blockname)}->{lc($param)} = $value;
+}
+
+
+
+
+
+
+
+
+
+
+sub _set_block {
+    my ($self, $blockname, $block) = @_;
+
+    unless ( defined $block ) {
+        croak "Block contents are missing";
+    }
+
+    unless ( ref($block) eq 'HASH' ) {
+        croak "Block contents should be hash reference";
+    }
+
+    $self->{_data}->{lc($blockname)} = $block;
+}
+
+
+
+
+sub hashref {
+    my $self = shift;
+
+    my $data = $self->{_data};
+
+    my %Hash = ();
+    while ( my ($blockname, $block) = each %{$data} ) {
+        while ( my ($key, $value) = each %{$block} ) {
+            $Hash{ "$blockname.$key" } = $value;
+        }
+    }
+    return \%Hash;
+}
+
+
+sub param_hash {
+    my $self = shift;
+
+    return %{ $self->hashref() };
+}
+
+
+sub param {
+    my $self  = shift;
+
+    # if called without any arguments, returns all the
+    # available keys
+    unless ( @_ ) {
+        return keys %{ $self->hashref };
+    }
+
+    # if called with a single argument, returns a matching value
+    if ( @_ == 1 ) {
+        # consider it as blockname.param
+        return $self->_get_param( $_[0] );
+    }
+
+    # If we're this far, we have to figure out which of the following
+    # syntax are used:
+    # param(-name=>'block.param'), param('block.name', 'value'),
+    # param(-name=>'block.param', -value=>'value'), param(-block=>'block')
+    my $args = {
+        '-name'     => undef,
+        '-value'    => undef,
+        '-values'   => undef,
+        '-block'    => undef,
+        @_,
+    };
+
+    if ( $args->{'-name'} && $args->{'-value'} ) {
+        return $self->_set_param($args->{'-name'}, $args->{'-value'});
+    }
+
+    if ( $args->{'-name'} ) {
+        return $self->_get_param($args->{'-name'});
+    }
+
+    if ( $args->{'-block'} && $args->{'-values'} ) {
+        return $self->_set_block($args->{'-block'}, $args->{'-values'});
+    }
+
+    if ( $args->{'-block'} ) {
+        return $self->_get_block($args->{'-block'});
+    }
+
+    # if we came this far, most likely simple param(key=>value) syntax was used:
+    if ( @_ == 2 ) {
+        return $self->_set_param(@_);
+    }
+
+    croak "Config::Simple->param() usage was incorrect!";
+}
+
+
+
+sub write {
+    my ($self, $new_file) = @_;
+
+    my $data    = $self->{_data}    or return;
+    my $fh      = $self->{_fh}      or return;
+    my $file    = $self->{_options}->{filename};
+
+    if ( defined $new_file ) {
+        unless ( sysopen (NEWFILE, $new_file, O_WRONLY|O_CREAT|O_TRUNC, 0666) ) {
+            croak "Couldn't open $new_file: $!";
+        }
+        $fh = \*NEWFILE;
+    }
+
+    unless ( flock ($fh, LOCK_EX) ) {
+        croak "Couldn't LOCK_EX $file: $!";
+    }
+
+    unless ( truncate($fh, 0) ) {
+        croak "Couldn't truncate $file: $!";
+    }
+
+    unless ( seek($fh, 0, 0) ) {
+        croak "Couldn't seek to the start of the file: $!";
+    }
+
+    print $fh "; Maintained by Config::Simple/$VERSION\n";
+    print $fh '; ', "-" x 35, "\n\n\n";
+
+    while ( my ($blockname, $block) = each %{$data} ) {
+        print $fh "[$blockname]\n";
+        while ( my ($key, $value) = each %{$block} ) {
+            $value = $self->_encode($value);
+            print $fh "$key=$value\n";
+        }
+        print $fh "\n\n";
+    }
+
+    if ( $self->{_after_dot} ) {
+        print $fh ".\n", $self->{_after_dot};
+    }
+
+    unless ( flock($fh, LOCK_UN) ) {
+        croak "Couldn't unlock $file: $!";
+    }
+
+    if ( defined $new_file ) {
+        unless ( close($fh) ) {
+            croak "Couldn't close $new_file: $!";
+        }
+    }
+}
+
+
+sub _encode {
+    my ($self, $string) = @_;
+    return $self->{_options}->{encoder}->($string);
+}
+
+
+
+sub _decode {
+    my ($self, $string) = @_;
+
+    return $self->{_options}->{decoder}->($string);
+}
+
+sub dump {
+    my ($self, $file) = @_;
+
+    require Data::Dumper;
+    my $d = new Data::Dumper([$self], ["obj_tree"]);
+
+    if ( defined $file ) {
+        unless ( sysopen(DUMP_FILE, $file, O_WRONLY|O_CREAT|O_TRUNC, 0666 ) ) {
+            croak "Couldn't dump into $file: $!";
+        }
+        unless ( flock(DUMP_FILE, LOCK_SH) ) {
+            croak "Couldn't LOCK_SH $file: $!";
+        }
+        print DUMP_FILE $d->Dump();
+        unless ( close (DUMP_FILE) ) {
+            croak "Couldn't close $file: $!";
+        }
+    }
+    return $d->Dump();
+}
+
+
+sub autosave {
+    my ($self, $new_value) = @_;
+
+    unless ( defined $new_value ) {
+        return $self->{_options}->{autosave} || 0;
+    }
+
+    $self->{_options}->{autosave} = $new_value;
+}
+
+
+
+sub version {
+
+    return $VERSION;
+}
+
+
+sub encoder {
+    my ($self, $coderef) = @_;
+
+    unless ( ref($coderef) eq 'CODE' ) {
+        croak "set_encoder(): should've set coderef";
+    }
+
+    $self->{_options}->{encoder} = $coderef;
+}
+
+
+sub decoder {
+    my ($self, $coderef) = @_;
+
+    unless ( ref($coderef) eq 'CODE' ) {
+        croak "set_encoder(): should've set coderef";
+    }
+
+    $self->{_options}->{decoder} = $coderef;
+}
 
 1;
 
@@ -487,377 +401,234 @@ sub CLEAR {
 
 =head1 NAME
 
-Config::Simple - Simple Configuration File Class
+Config::Simple - Simple Configuration File class
 
-=head1 SYNPOSIS
+=head1 SYNOPSIS
 
-in the app.cfg configuration file:
 
+    # In your configuratin file (some.cfg)
     [mysql]
-    host=ultracgis.com
-    login=sherzodr
+    user=sherzodr
     password=secret
-
-    [profile]
-    first name=Sherzod
-    last name=Ruzmetov
-    email=sherzodr@cpan.org
+    host=localhost
+    database=test
 
 
-in your Perl application:
+
+
+    # In your program
 
     use Config::Simple;
-    my $cfg = new Config::Simple(filename=>"app.cfg");
 
-    print "MySQL host: ", $config->param("mysql.host"), "\n";
-    print "MySQL login: ", $config->param("mysql.login"), "\n";
+    my $cfg = new Config::Simple("some.cfg");
 
-    # to get just [mysql] block:
-    my $mysql = $cfg->param(-block=>"mysql");
+    # reading
+    my $user = $cfg->param('mysql.user');
+    my $password = $cfg->param('mysql.password');
 
-    print "MySQL host: ", $mysql->{host}, "\n";
-    print "MySQL login: ", $mysql->{login}, "\n";
+    # updating
+    $cfg->param('mysql.user', foo);
 
+    # saving the changes back into the file
     $cfg->write();
 
-    # Tied hash access...
+    # tricks are endless
 
-    tie my %Config, "Config::Simple::Tie", "app.cfg", O_RDONLY|O_CREAT or die $Config::Simple::errstr;
-
-    print "MySQL host: ", $Config{'mysql.host'}, "\n";
-
-    # setting new MySQL host value
-
-    $Config{'mysql.host'} = "new.localhost";    # this also updates the file
-    delete $Config{'mysql.RaiseError'};         # also updates the file
-
-
-=head1 WARNING
-
-As of version 2.9 library's C<param()> method slightly changed its behavior
-when called without arguments. Prior to this version it used to return list
-consisting of the names of blocks in the configuration file. After 2.9 and above
-it retruns the list of all the names. Example:
-
-    # in the config file:
-    [mysql]
-    host = localhost
-    user = sherzodr
-    password = marley01
-
-    [general]
-    site_url = http://www.ultracgis.com
-    site_path = /home/sherzodr/public_html
-
-
-Prior to 2.9 syntac C<$config->param()> used to return list of "mysql" and "general".
-Now it returns "mysql.host", "mysql.user", "mysq.password", "general.site_url",
-"general.site_path". Sorry about the incompatibility.
-
-
-=head1 NOTE
-
-This documentation refers to version 2.81 of Config::Simple. If you have a version
-older than this, please update it to the latest release.
 
 =head1 DESCRIPTION
 
-This Perl5 library  makes it very easy to parse INI-styled configuration files
-and create once on the fly. It optionally requires L<Digest::MD5|Digest::MD5> module.
+Config::Simple is a Perl class to manipulate simple, windows-ini-styled
+configuration files. Reading and writing external configurable data is
+the integral part of any software design, and Config::Simple is designed to
+help you with it.
 
-C<Config::Simple> modules defines too classes, C<Config::Simple> and C<Config::Simple::Tie>.
-Latter will allow accessing the Configuration files via tied hash variables. In this case,
-modifications to the values of the hash will reflect in the configuration file right away.
+=head1 REVISION
 
-Unlike the case with C<Config::Simple::Tie>, C<Config::Simple> uses simple
-OO style, and requires calling  L<write()> if you want to update the contents of
-the file. Otherwise all the manipulations will take place in memory.
+This manual refers to $Revision: 3.0 $
 
-Syntax for Config::Simple::Tie is:
+=head1 CONSTRUCTOR
 
-    tie my %Hash, "Config::Simple::Tie", "file.cfg" [,mode] [,c] or die $Config::Simple::errstr;
-
-We'll give you a brief example that makes use of C<Config::Simple::Tie> and we'll continue on
-with C<Config::Simple> methods.
-
-    use Config::Simple;     # notice, you still have to load Config::Simple
-                            # not Config::Simple::Tie!!!
-
-    tie my %Config, "Config::Simple::Tie", "app.cfg" or die "app.cfg: $Config::Simple::errstr";
-
-    my $host = $Config{'mysql.host'};
-    my $login = $Config{'mysql.login'};
-
-    delete $Config{'mysql.password'};   # deletes from the file as well
-
-    $Config{'mysql.login'} = "marley01"; # updates the file
-
-    untie %Config;          # destroys the connection;
-
-
-As you see, after you tie a hash variable to C<Config::Simple::Tie> class, you can
-use it as an ordinary HASH, but in the background it will be dealing with a real
-file.
-
-
-=head2 CONFIGURATION FILE
-
-Configuration file that Config::Simple uses is similar to Window's *.ini file syntax.
-Example.,
-
-    ; sample.cfg
-
-    [block1]
-    key1=value1
-    key2=value2
-    ...
-
-    [block2]
-    key1=value1
-    key2=value2
-    ...
-
-It can have infinite number of blocks and infinite number of key/value pairs in each block.
-Block and key names are case sensitive. i.e., [block1] and [Block1] are two completely different
-blocks. But this might change in the subsequent releases of the library. So please use with caution!
-
-Lines that start with either ';' (semi colon) or '#' (pound) are assumed to be comments
-till the end of the line. If a line consists of a sole '.' (dot), then all the lines
-till eof are ignored (it's like __END__ Perl token)
-
-When you create Config::Simple object with $cfg = new Config::Simple(filename=>"sample.cfg")
-syntax, it reads the above sample.cfg config file, parses the contents, and creates
-required data structure, which you can access through its public L<methods|/"METHODS">.
-
-In this documentation when I mention "name", I'll be referring to block name and key delimited with a dot (.).
-For example, from the above sample.cfg file, following names could be retrieved:
-block1.key1, block1.key2, block2.key1 and block2.key2 etc.
-
-Here is the configuration file that I use in most of my CGI applications, and I'll be using it
-in the examples throughout this manual:
-
-    ;app.cfg
-
-    [mysql]
-    host=ultracgis
-    login=sherzodr
-    password=secret
-    db_name=test
-    RaiseError=1
-    PrintError=1
-
-=head2 WHITESPACE
-
-Prior to version 2.8, the following syntax produced a syntax error if C<c=E<gt>1>
-swith in the new() was turned on:
-
-    [mysql]
-    # this is a comment
-    host= ultracgis
-    login =sherzodr
-    password = secret
-
-because of the whitespace surrounding C<=>. The problem was fixed in version 2.8
-of the library (thanks to Michael Caldwell, see L<credits|"CREDITS">), and all the following whitespace combinations
-are considered valid:
-
-        [mysql]
-        # this is a comment
-    host = ultracgis
-      login =sherzodr
-     password =     secret
-
-This will enable custom identation in your config files.
-
-=head2 fcntl.h CONSTANTS
-
-By default Config::Simple exports C<O_RDONLY>, C<O_RDWR>, C<O_CREAT>, C<O_EXCL> L<fcnl.h|Fcntl> (file control) constants. When you create Config::Simple object by passing it a filename, it will try to read the file.
-If it fails it creates the file. This is a default behavior. If you want to control this behavior,
-you'll need to pass mode with your desired fcntl O_* constants to the constructor:
-
-    $config = new Config::Simple(filename=>"app.cfg", mode=>O_RDONLY);
-    $config = new Config::Simple(filename=>"app.cfg", mode=>O_RDONLY|O_CREAT); # default
-    $config = new Config::Simple(filename=>"app.cfg", mode=>O_EXCL);
-
-    # tied hash access method:
-
-    $config = tie %Config, "Config::Simple::Tie", "app.cfg", O_RDONLY;
-    $config = tie %Config, "Config::Simple::Tie", "app.cfg", O_RDONLY|O_CREAT;
-    $config = tie %Config, "Config::Simple::Tie", "app.cfg", O_EXCL;
-
-
-Note: in the tied hash access method, you can ignore the return value of tie() (which is a Config::Simple object).
-You will not be using it any ways. In case you'll need this at any time in the future, you
-can always acquire it by calling tied() Perl built-in function:
-
-    $config = tied(%Config);
-
-
-
-
-fcntl constants:
-
-    +===========+============================================================+
-    | constant  |   description                                              |
-    +===========+============================================================+
-    | O_RDONLY  |  opens a file for reading only, fails if doesn't exist     |
-    +-----------+------------------------------------------------------------+
-    | O_RDWR    |  opens a file for reading and writing                      |
-    +-----------+------------------------------------------------------------+
-    | O_CREAT   |  creates a file                                            |
-    +-----------+------------------------------------------------------------+
-    | O_EXCL    |  creates a file if it doesn't already exist                |
-    +-----------+------------------------------------------------------------+
-
-=head1 METHODS
-
-=over 2
-
-=item new( filename=>$scalar [, mode=>O_*] [, lockfile=>$scalar] [,c=>$boolean] )
-
-Constructor method. Requires filename to be present and picks up defaults for the rest
-if omitted. mode is used while opening the file, lockfile while updating the file.
-
-It returns Config::Simple object if successful. If it fails, sets the error message to
-$Config::Simple::errstr variable, and returns undef.
-
-mode can accept any of the above described L<fcntl|Fcntl> constants. Default is C<O_RDONLY E<verbar> O_CREAT>.
-Default lockfile is the name of the configuration file with ".lock" extension
-
-If you set the value of C<c> to 1 (true), then it checks the configuration file for proper
-syntax, and throws an exception if it finds a syntax error. Error message looks
-something like C<Syntax error in line 2 of sample.cfg: "this is just wrong" at t/default.t line 11>.
-If you set it to 0 (false), those lines will just be ignored.
-
-=item param([args])
-
-If called without any arguments, returns the list of all the available blocks in the
-config. file.
-
-If called with arguments, this method supports several  different syntax,
-and we'll discuss them all separately.
+C<new()> - constructor,  initializes and returns Config::Simple object. Following
+options are available:
 
 =over 4
 
-=item param($name))
+=item *
 
-returns the value of $name. $name is block and key separated with a dot. For example,
-to retrieve the mysql login name from the app.cfg, we could use the following
-syntax:
+C<filename> - filename to read into memory. If this option is defined,
+Config::Simple also calls read() for you. If there's only one argument
+passed to the constructor, it will be treated as the filename as well.
 
-    $login = $cfg->param("mysql.login");
+=item *
 
-=item param(-name=>$name)
+C<autosave> - boolean value indicating if in-memory modifications be saved back
+to configuration file before object is destroyed. Default is 0, which means "no".
+(See L<autosave()>)
 
-the same as L<"param($name)">
+=item *
 
-=item param($name, $value)
+C<decoder> - reference to a function (coderef), is used by read() to decode the
+values. If this option is missing, default decoder will be used,
+which simply decodes new line characters (\n) back to newlines (opposite of default
+encoder). See L<decoder()>.
 
-updates the value of $name to $value. For example, to set the value of "RaiseError" to 0, and
-create an new "AutoCommit" key with a true value:
+=item *
 
-    $cfg->param("mysql.RaiseError", 0);
-    $cfg->param("mysql.AutoCommit", 1);
-
-As I implied above, if either the block or the key does not exist, it will be created for you.
-So
-
-    $cfg->param("author.f_name", "Sherzod");
-
-would create an [author] block with "f_name=Sherzod" key/value pair.
-
-=item param(-name=>$name, -value=>$value)
-
-the same as L<"param($name, $value)">
-
-=item param(-block=>$block)
-
-returns the whole block as a hash reference. For example, to get the whole [mysql] block:
-
-    $mysql = $cfg->param(-block=>'mysql');
-
-    $login = $mysql->{login};
-    $psswd = $mysql->{password};
-
-=item param(-block=>$block, -values=>{key1=>value1, key2=>value2})
-
-creates a new block with the specified values,
-or overrides existing block. For example, to add the [site] block to the above app.cfg with
-"title=UltraCgis.com" and "description=The coolest site" key/values we could use the following syntax:
-
-    $cfg->param(-block=>"site", -values=>{
-                    title=> "UltraCgis.com",
-                    description=>"The coolest site",
-                    author=>"Sherzod B. Ruzmetov",
-                    });
-
-note that if the [site] block already exists, its contents will be cleared and then re-created with
-the new values.
+C<encoder> - reference to a function (coderef). Is used by write() to encode
+special characters/sequences before saving them in the configuration file.
+If this option is missing, default encoder will be used, which encodes newlines to avoid
+corrupted configuration files. See L<encoder()>.
 
 =back
 
-=item set_param($name, $value)
+All the arguments to the constructor can also be set with their respective accessor methods.
+However, there's an important point to keep in mind. If you define filename as an argument
+while calling the constructor and at the same time want to use your custom decoder, you should specify
+the decoder together with the filename. Otherwise, when constructor calls read(), it will
+use default decoder(). Another option is not to mention filename to constructor, but do so
+to read().
 
-This method is provided for backward compatibility with 1.x version of Config::Simple. It is identical
-to param($name, $value) syntax.
+=head1 METHODS
 
-=item param_hash()
+Following methods are available for a Config::Simple object
 
-handy method to save the contents of the config. file into a hash variable.
+=over 4
 
-    %Config = $cfg->param_hash();
+=item *
 
-Structure of %Config looks like the following:
+read() - reads and parses the configuration file into Config::Simple object. Accepts one argument,
+which is treated as a filename to read. If "filename" option to the constructor was defined,
+there's no point calling read(), since new() will call it for you.
+Example:
 
-    %Config = (
-        'mysql.PrintError'  => 1,
-        'mysql.db_name'     => 'test',
-        'mysql.login'       => 'sherzodr',
-        'mysql.password'    => 'secret',
-        'mysql.host'        => 'ultracgis.com',
-        'mysql.RaiseError'  => 1,
-    );
+    $cfg = new Config::Simple();
+    $cfg->read("some.cfg");
 
-=item write([$new_filename])
+=item *
 
-Notice, that all the above manipulations take place in the object's memory, i.e., changes you
-make with param() and set_param() methods do not reflect in the actual config. file.
-To update the config file in the end, you'll need to call L<"write()"> method with no arguments.
+hashref() - returns the configuration file as a reference to a hash. Keys consist of
+configuration section and section key separated by a dot (.), and value holding the value
+for that key. Example:
 
-If you want to save newly updated/created configuration into a new file, pass the new filename
-as the first argument to the write() method, and the original config. file will not be
-touched.
+    # some.cfg
+    [section]
+    key1=value1
+    key2=value2
 
-If it detects that configuration file was updated by a third party while Config::Simple was working
-on the file, it throws a harmless warning to STDERR, and will copy the original file to a new location
-with the .bk extension, and updates the configuration file with its own contents.
+Hashref will return the following hash:
 
-L<"write()"> returns true if successful, undef, otherwise. Error message can be accessed either
-vi $Config::Simple::errstr variable, or by calling L<"error()"> method.
+    $ref = {
+        'section.key1' => value1,
+        'section.key2' => value2,
+    }
 
-=item error()
+=item *
 
-Returns the value of $Config::Simple::errstr
+param_hash() - for backward compatibility. Returns similar data as hashref() does
+(see L<hashref()>), but returns de referenced hash.
+
+=item *
+
+param() - used for accessing and modifying configuration values. Act differently
+depending on the arguments passed.
+
+=over 4
+
+=item param()
+
+If used with no arguments, returns all the
+keys available in the configuration file. Once again, keys are sections and section
+variables delimited with a dot.
+
+=item param($key)
+
+If used with a single argument, returns the respective value for that key. Argument
+is expected to be in the form of "sectionName.variableName".
+
+=item param(-name=>$key)
+
+The same as the previous syntax.
+
+=item param($key, $value)
+
+Used to modify $key with $value. $key is expected to be in "sectionName.variableName" format.
+
+=item param(-name=>$key, -value=>$value);
+
+The same as the previous syntax.
+
+=item param(-block=>$blockname)
+
+Returns a single block/section from the configuration file in form of hashref (reference to
+a hash). For example, assume we had the following block in our "some.cfg"
+
+    [mysql]
+    user=sherzodr
+    password=secret
+    host=localhost
+    database=test
+
+We can access the above block like so:
+
+    my $mysql = $cfg->param(-block=>'mysql');
+    my $user = $mysql->{user};
+    my $host = $mysql->{host};
+
+=item param(-block=>$blockname, -values=>{key1 => value1,...})
+
+Used to create a new block or redefine the existing one.
+
 
 =back
 
-=head1 BUGS
+=item *
 
-Please send them to my email if you detect any with a sample code
-that triggers that bug. Even if you don't have any, just let me know that you are using it.
-It just makes me feel good ;-)
+write() - saves the modifications to the configuration file. Config::Simple
+will call write() for you automatically if 'autosave' was set to true (see L<new()>). Otherwise,
+write() is there for you if need. Argument, if exists, will be treated a name of a file
+current data should be written in. It's useful to copy modified configuration file
+to a different location, or to save the backup copy of a current configuration file
+before making any changes to it:
+
+    $cfg = new Config::Simple(filename=>'some.cfg', autosave=>1);
+
+    $cfg->write('some.cfg.bak');        # creating backup copy
+                                        # before updating the contents
+
+=item *
+
+encoder() - sets a new encoder to be used in the form of coderef. This encoder
+will be used by write() before writing the values back to a file. Alternatively,
+you can define the encoder as an argument to constructor ( see L<new()> ).
+
+=item *
+
+decoder() - sets a new decoder to be used in the form of coderef. This decoder is
+used by read() ( see L<read()> ), so should be set (if at all) before calling read().
+Alternatively, you can define the decoder as an argument to constructor ( see L<new()> ).
+
+=item *
+
+autosave() - sets autosave value (see L<new()>)
+
+
+=item *
+
+dump() - dumps the object data structure either to STDOUT or into a filename which
+can be defined as the first argument. Used for debugging only
+
+=back
 
 =head1 CREDITS
 
-Following people contributed patches and/or suggestions to the Config::Simple.
+Following people contributed with patches and/or suggestions to the Config::Simple.
 In chronological order:
 
 =over 4
 
 =item Michael Caldwell (mjc@mjcnet.com)
 
-Added L<witespace support|"WHITESPACE"> in the configuration files, which
-enables custom identation
+Added witespace support in the configuration files, which enables custom identation
 
 =item Scott Weinstein (Scott.Weinstein@lazard.com)
 
@@ -865,20 +636,17 @@ Fixed the bugs in the TIEHASH method.
 
 =back
 
-=head1 COPYRIGHT
-
-    Copyright (C) 2002  Sherzod Ruzmetov <sherzodr@cpan.org>
-
-    This program is free software; you can redistribute it and/or
-    modify it under the same terms as Perl itself
-
 =head1 AUTHOR
 
-    Sherzod B. Ruzmetov <sherzodr@cpan.org>
-    http://www.ultracgis.com
+Config::Simple is written and maintained by Sherzod Ruzmetov <sherzodr@cpan.org>
+
+=head1 COPYRIGHT
+
+    This library is a free software, and can be modified and redistributed
+    under the same terms as Perl itself.
 
 =head1 SEE ALSO
 
-L<Config::General>, L<AppConfig>, L<Config::IniFiles>
+L<Config::General>
 
 =cut
