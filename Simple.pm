@@ -1,6 +1,6 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.32 2003/03/08 08:10:35 sherzodr Exp $
+# $Id: Simple.pm,v 3.33 2003/03/08 09:57:52 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
@@ -11,7 +11,7 @@ use Fcntl (':DEFAULT', ':flock');
 use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 
-$VERSION   = '4.44';
+$VERSION   = '4.45';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -234,10 +234,9 @@ sub parse_ini_file {
       redo unless eof($fh);
     }
     $line =~ /^(\n|\#|;)/  and next;
-    $line =~ /\S/          or  next;    
+    $line =~ /\S/          or  next;
     $line =~ s/^\s+//g;
-    $line =~ s/\s+$//g;    
-
+    $line =~ s/\s+$//g;
     
     # parsing the block name:
     $line =~ /^\s*\[\s*([^\]]+)\s*\]$/       and $bn = lcase($1), next;
@@ -391,7 +390,7 @@ sub get_param {
   my $rv = undef;
   if ( $syntax eq 'ini' ) {
     my ($block_name, $key) = $arg =~ m/^([^\.]+)\.(.*)$/;
-    if ( $block_name && $key ) {
+    if ( defined($block_name) && defined($key) ) {
       $rv = $self->{_DATA}->{$block_name}->{$key};
     } else {
       $rv = $self->{_DATA}->{$DEFAULTNS}->{$arg};
@@ -508,12 +507,12 @@ sub vars {
   if ( $syntax eq 'ini' ) {
     while ( my ($block, $values) = each %{$self->{_DATA}} ) {
       while ( my ($k, $v) = each %{$values} ) {
-        $vars{"$block.$k"} = @$v == 1 ? $v->[0] : $v;
+        $vars{"$block.$k"} = $v->[1] ? $v : $v->[0];
       }
     }
   } else {
     while ( my ($k, $v) = each %{$self->{_DATA}} ) {
-      $vars{$k} = @$v ? $v->[0] : $v;
+      $vars{$k} = $v->[1] ? $v : $v->[0];
     }
   }
   return wantarray ? %vars : \%vars;
@@ -701,6 +700,83 @@ sub verbose {
 
 
 
+#------------------
+# tie() interface
+#------------------
+
+sub TIEHASH {
+  my ($class, $file, $args) = @_;
+
+  unless ( defined $file ) {
+    croak "Usage: tie \%config, 'Config::Simple', \$filename";
+  }  
+  return $class->new($file);
+}
+
+
+sub FETCH {
+  my $self = shift;
+
+  return $self->param(@_);
+}
+
+
+sub STORE {
+  my $self = shift;
+
+  return $self->param(@_);
+}
+
+
+
+sub DELETE {
+  my $self = shift;
+
+  return $self->delete(@_);
+}
+
+
+sub CLEAR {
+  my $self = shift;
+  map { $self->delete($_) } $self->param();
+}
+
+
+sub EXISTS {
+  my ($self, $key) = @_;
+
+  my $vars = $self->vars();
+  return exists $vars->{$key};
+}
+
+
+
+sub FIRSTKEY {
+  my $self = shift;
+
+  # we make sure that tied hash is created ONLY if the program
+  # needs to use this functionality.
+  unless ( defined $self->{_TIED_HASH} ) {    
+    $self->{_TIED_HASH} = $self->vars();
+  }
+  my $temp = keys %{ $self->{_TIED_HASH} };
+  return scalar each %{ $self->{_TIED_HASH} };
+}
+
+
+sub NEXTKEY {
+  my $self = shift;
+
+  unless ( defined $self->{_TIED_HASH} ) {
+    $self->{_TIED_HASH} = $self->vars();
+  }
+  return scalar each %{ $self->{_TIED_HASH} };
+}
+
+
+
+
+
 # -------------------
 # deprecated methods
 # -------------------
@@ -727,45 +803,6 @@ sub errstr {
   my $self = shift;
   return $self->error(@_);
 }
-
-
-#------------------
-# tie() interface
-#------------------
-
-sub TIEHASH {
-  my ($class, $file) = @_;
-
-  unless ( defined $file ) {
-    croak "Usage: tie \%config, 'Config::Simple', \$filename";
-  }
-  
-  return $class->new($file)
-}
-
-
-sub FETCH {
-  my $self = shift;
-
-  return $self->param(@_);
-}
-
-
-sub STORE {
-  my $self = shift;
-
-  return $self->param(@_);
-}
-
-
-
-sub DELETE {
-  my $self = shift;
-
-  return $self->delete(@_);
-}
-
-
 
 
 
@@ -1306,7 +1343,7 @@ checkout L<Config::General> instead.
 
 =head1 BUGS
 
-Submit bugs to Sherzod B. Ruzmetov E<lt>sherzodr@cpan.orgE<gt>
+Submit bugs and possibly patches to Sherzod B. Ruzmetov E<lt>sherzodr@cpan.orgE<gt>. If you think
 
 =head1 CREDITS
 

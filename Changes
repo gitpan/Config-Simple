@@ -1,6 +1,10 @@
  Change log for Config::Simple
-  $Date: 2003/03/08 08:08:51 $
+  $Date: 2003/03/08 09:57:52 $
 
+4.45
+    * full support for tie-interface
+    * bug in param() method fixed, where it used to display 'undef'
+      as a value of any variable in the config file with a single '0'.
 
 4.44
     * import_from() class method now supports second argument
@@ -39,4 +43,4 @@
     * much improved write()
 
 
-$Revision: 3.13 $
+$Revision: 3.14 $

@@ -9,8 +9,9 @@
 use strict;
 use Test;
 use File::Spec;
+use Data::Dumper;
 BEGIN {
-  plan tests => 5;
+  plan tests => 6;
 }
 
 require Config::Simple;
@@ -24,14 +25,12 @@ ok(1);
 
 my $file = File::Spec->catfile('t', 'project.ini');
 
-ok(tie my %vars, "Config::Simple", $file);
+my $obj = undef;
 
-ok($vars{'Project\2.Name'} eq 'MPFCU');
-ok($vars{'Project\1.Count'} == 9);
-
-$vars{'Project\100.Name'} = "Config::Simple";
-$vars{'Project\100.Version'} = tied(%vars)->VERSION();
-$vars{'Project\100.Versions'} = ["Version 1", "Version 2", "Version 3"]; 
-
-ok($vars{'Project\100.Name'} eq 'Config::Simple');
+ok($obj = tie my %Config, 'Config::Simple', $file);
+ok( exists $Config{'Project\1.Count'} );
+ok( $Config{'Project\0.Name'} eq 'Default' );
+ok( scalar( keys %Config ) == 25 );
+delete $Config{'Project\1.Count'};
+ok ( exists($Config{'Project\1.Count'}) ? 0 : 1);
 
