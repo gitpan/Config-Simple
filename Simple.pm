@@ -1,6 +1,6 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.33 2003/03/08 09:57:52 sherzodr Exp $
+# $Id: Simple.pm,v 3.35 2003/03/09 01:43:42 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
@@ -10,8 +10,9 @@ use Carp;
 use Fcntl (':DEFAULT', ':flock');
 use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
+use AutoLoader 'AUTOLOAD';
 
-$VERSION   = '4.45';
+$VERSION   = '4.46';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -479,46 +480,6 @@ sub set_param {
 
 
 
-sub delete {
-  my ($self, $key) = @_;
-
-  my $syntax = $self->syntax() or die "No 'syntax' is defined";
-  if ( $syntax eq 'ini' ) {
-    my ($bn, $k) = $key =~ m/([^\.]+)\.(.*)/;
-    if ( defined($bn) && defined($k) ) {
-      delete $self->{_DATA}->{$bn}->{$k};
-    } else {
-      delete $self->{_DATA}->{$DEFAULTNS}->{$key};
-    }
-    return 1;
-  }
-  delete $self->{_DATA}->{$key};
-}
-
-
-
-
-# returns all the keys as a hash or hashref
-sub vars {
-  my $self = shift;
-
-  my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is not defined";
-  my %vars = ();
-  if ( $syntax eq 'ini' ) {
-    while ( my ($block, $values) = each %{$self->{_DATA}} ) {
-      while ( my ($k, $v) = each %{$values} ) {
-        $vars{"$block.$k"} = $v->[1] ? $v : $v->[0];
-      }
-    }
-  } else {
-    while ( my ($k, $v) = each %{$self->{_DATA}} ) {
-      $vars{$k} = $v->[1] ? $v : $v->[0];
-    }
-  }
-  return wantarray ? %vars : \%vars;
-}
-
-
 
 
 
@@ -596,10 +557,6 @@ sub as_string {
 
 
 
-
-
-
-
 # quotes each value before saving into file
 sub quote_values {
   my $string = shift;
@@ -617,192 +574,7 @@ sub quote_values {
 
 
 
-# imports names into the caller's namespace as global variables.
-# I'm not sure how secure this method is. Hopefully someone will
-# take a look at it for me
-sub import_names {
-  my ($self, $namespace) = @_;
 
-  unless ( defined $namespace ) {    
-    $namespace = (caller)[0];
-  }
-  if ( $namespace eq 'Config::Simple') {
-    croak "You cannot import into 'Config::Simple' package";
-  }
-  my %vars = $self->vars();
-  no strict 'refs';
-  while ( my ($k, $v) = each %vars ) {
-    $k =~ s/\W/_/g;
-    ${$namespace . '::' . uc($k)} = $v;
-  }
-}
-
-
-
-# imports names from a file. Compare with import_names.
-sub import_from {
-  my ($class, $file, $arg) = @_;
-
-  if ( ref($class) ) {
-    croak "import_from() is not an object method.";
-  }
-  # this is a hash support
-  if ( defined($arg) && (ref($arg) eq 'HASH') ) {
-    my $cfg = $class->new($file) or return;
-    map { $arg->{$_} = $cfg->param($_) } $cfg->param();
-    return $cfg;
-  }
-  # following is the original version of our import_from():
-  unless ( defined $arg ) {
-    $arg = (caller)[0];
-  }  
-  my $cfg = $class->new($file) or return;
-  $cfg->import_names($arg);
-  return $cfg;
-}
-
-
-
-
-sub error {
-  my ($self, $msg) = @_;
-
-  if ( $msg ) {
-    $errstr = $msg;
-  }
-  return $errstr;
-}
-
-
-
-
-
-sub dump {
-  my ($self, $file, $indent) = @_;
-
-  require Data::Dumper;
-  my $d = new Data::Dumper([$self], [ref $self]);
-  $d->Indent($indent||2);
-  if ( defined $file ) {
-    sysopen(FH, $file, O_WRONLY|O_CREAT|O_TRUNC, 0600) or die $!;
-    print FH $d->Dump();
-    CORE::close(FH) or die $!;
-  }
-  return $d->Dump();
-}
-
-
-sub verbose {
-  DEBUG or return;
-  carp "****[$0]: " .  join ("", @_);
-}
-
-
-
-
-#------------------
-# tie() interface
-#------------------
-
-sub TIEHASH {
-  my ($class, $file, $args) = @_;
-
-  unless ( defined $file ) {
-    croak "Usage: tie \%config, 'Config::Simple', \$filename";
-  }  
-  return $class->new($file);
-}
-
-
-sub FETCH {
-  my $self = shift;
-
-  return $self->param(@_);
-}
-
-
-sub STORE {
-  my $self = shift;
-
-  return $self->param(@_);
-}
-
-
-
-sub DELETE {
-  my $self = shift;
-
-  return $self->delete(@_);
-}
-
-
-sub CLEAR {
-  my $self = shift;
-  map { $self->delete($_) } $self->param();
-}
-
-
-sub EXISTS {
-  my ($self, $key) = @_;
-
-  my $vars = $self->vars();
-  return exists $vars->{$key};
-}
-
-
-
-sub FIRSTKEY {
-  my $self = shift;
-
-  # we make sure that tied hash is created ONLY if the program
-  # needs to use this functionality.
-  unless ( defined $self->{_TIED_HASH} ) {    
-    $self->{_TIED_HASH} = $self->vars();
-  }
-  my $temp = keys %{ $self->{_TIED_HASH} };
-  return scalar each %{ $self->{_TIED_HASH} };
-}
-
-
-sub NEXTKEY {
-  my $self = shift;
-
-  unless ( defined $self->{_TIED_HASH} ) {
-    $self->{_TIED_HASH} = $self->vars();
-  }
-  return scalar each %{ $self->{_TIED_HASH} };
-}
-
-
-
-
-
-# -------------------
-# deprecated methods
-# -------------------
-
-sub write_string {
-  my $self = shift;
-
-  return $self->as_string(@_);
-}
-
-sub hashref {
-  my $self = shift;
-
-  return scalar( $self->vars() );
-}
-
-sub param_hash {
-  my $self = shift;
-
-  return ($self->vars);
-}
-
-sub errstr {
-  my $self = shift;
-  return $self->error(@_);
-}
 
 
 
@@ -820,19 +592,38 @@ Config::Simple - simple configuration file class
 
   use Config::Simple;
 
-  # OO interface:
-  $cfg = new Config::Simple('app.cfg');
-  $user = $cfg->param("User");    # read the value  
-  $cfg->param(User=>'sherzodr');  # update  
-  my %Config = $cfg->vars();      # load everything into %Config
-  $cfg->write();                  # saves the changes to file
-    
+  # --- Simple usage. Loads the config. file into a hash:
+  Config::Simple->import_from('app.ini', \%Config);
 
-  # tie interface:
-  tie my %Config, "Config::Simple", "app.cgi";    
-  $user = $Config{'User'};  
-  $Config{'User'} = 'sherzodr';  
-  tied(%Config)->write();
+  
+  # --- OO interface:
+  $cfg = new Config::Simple('app.ini');
+
+  # accessing values:
+  $user = $cfg->param('User');
+
+  # getting the values as a hash:
+  %Config = $cfg->vars();
+
+  # updating value with a string
+  $cfg->param('User', 'sherzodR');
+
+  # updating a value with an array:
+  $cfg->param('Users', ['sherzodR', 'geek', 'merlyn']);
+
+  # adding a new block to an ini-file:
+  $cfg->param(-block=>'last-access', -values=>{'time'=>time()});
+  
+  # accessing a block of an ini-file;
+  $mysql = $cfg->param(-block=>'mysql');
+
+  # saving the changes back to file:
+  $cfg->save();
+
+
+  # --- tie() interface
+  tie %Config, "Config::Simple", 'app.ini';
+  
 
 =head1 ABSTRACT
 
@@ -1154,9 +945,10 @@ escape it with a backlash:
 
 =head2 TIE INTERFACE
 
-If OO style intimidates you, Config::Simple also supports tie() interface.
-This interface allows you to tie() an ordinary Perl hash to the configuration file.
-From that point on, you can use the variable as an ordinary Perl hash. 
+If OO style intimidates you, and C<import_from()> is too simple for you,
+Config::Simple also supports tie() interface. This interface allows you to tie()
+an ordinary Perl hash to the configuration file. From that point on, you can use 
+the variable as an ordinary Perl hash. 
 
   tie %Config, "Config::Simple", 'app.cfg';
 
@@ -1164,14 +956,20 @@ From that point on, you can use the variable as an ordinary Perl hash.
   print "Username is '$Config{User}'\n";
   $Config{User} = 'sherzodR';
 
+The difference between C<import_from($file, \%Hash)> is, all the changes you make
+to the hash after tie()ing it, will also reflect in the configuration file object.
+If autosave() was turned on, they will also be written back to file:
+
+  tie %Config, "Config::Simple", "app.cfg";
+  tied(%Config)->autosave(1);  
 
 To access the method provided in OO syntax, you need to get underlying Config::Simple
 object. You can do so with tied() function:
   
   tied(%Config)->write();
 
-WARNING: tie interface is experimental and not well tested yet. It also doesn't perform
-all the hash manipulating operations of Perl. Let me know if you encounter a problem.
+WARNING: tie interface is experimental and not well tested yet. Let me know if you 
+encounter a problem.
 
 =head1 MISCELLANEOUS
 
@@ -1210,7 +1008,7 @@ for their return values are read() and write(). If you pass filename to new(), y
 need to check its return value as well. They return any true value indicating success,
 undef otherwise:
 
-  # following new always returns true:
+  # following new() always returns true:
   $cfg = new Config::Simple();
 
   # read() can fail:
@@ -1225,6 +1023,9 @@ undef otherwise:
   # write() may fail:
   $cfg->write() or die $cfg->error();
 
+  # tie() may fail, since it calls new() with a filename
+  tie %Config, "Config::Simple", 'app.cfg' or die Confi::Simple->error();
+
 =head1 METHODS
 
 =over 4
@@ -1233,7 +1034,7 @@ undef otherwise:
 
 - constructor. Optionally accepts several arguments. Returns Config::Simple object.
 Supported arguments are B<filename>, B<syntax>, B<autosave>. If there is a single
-argument, will be treated as the name of the configuration.
+argument, will be treated as the name of the configuration file.
 
 
 =item read()
@@ -1251,23 +1052,25 @@ returns all the available names from the configuration file.
 =item delete($name)
 
 - deletes a variable from a configuration file. $name has the same meaning and syntax
-as it does in param()
+as it does in param($name)
 
 =item vars()
 
 - depending on the context used, returns all the values available in the configuration
 file either as a hash or a reference to a hash
 
-=item import_names()
+=item import_names([$NS])
 
 - imports all the names from the configuration file to the caller's name space. Optional
 argument, if passed, will be treated as the name space variables to be imported into.
 All the names will be uppercased. Non-alphanumeric strings in the values will be underscored
 
-=item import_from()
+=item import_from($file, \%hash | $NS)
 
-- class method. Accepts the name of the file to import names from. Additional arguments
-will be passed to import_names(). Returns underlying Config::Simple object
+- class method. If the second argument is a reference to an existing hash, it will
+load all the configuration contents into that hash. If the second argument is a 
+string, it will be treated as the namespace variables should be imported into, just
+like import_names() does.
 
 =item get_block($name)
 
@@ -1327,7 +1130,8 @@ manual. Default indent size is 2.
 
 =item *
 
-Support for lines with continuation character, '\'.
+Support for lines with continuation character, '\'. Currently it's support
+is restricted.
 
 =item *
 
@@ -1384,6 +1188,239 @@ import_names() and import_from() idea.
 L<Config::General>, L<Config::Simple>, L<Config::Tiny>
 
 =cut
+
+
+
+
+# returns all the keys as a hash or hashref
+sub vars {
+  my $self = shift;
+
+  my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is not defined";
+  my %vars = ();
+  if ( $syntax eq 'ini' ) {
+    while ( my ($block, $values) = each %{$self->{_DATA}} ) {
+      while ( my ($k, $v) = each %{$values} ) {
+        $vars{"$block.$k"} = $v->[1] ? $v : $v->[0];
+      }
+    }
+  } else {
+    while ( my ($k, $v) = each %{$self->{_DATA}} ) {
+      $vars{$k} = $v->[1] ? $v : $v->[0];
+    }
+  }
+  return wantarray ? %vars : \%vars;
+}
+
+
+
+
+
+# imports names into the caller's namespace as global variables.
+# I'm not sure how secure this method is. Hopefully someone will
+# take a look at it for me
+sub import_names {
+  my ($self, $namespace) = @_;
+
+  unless ( defined $namespace ) {    
+    $namespace = (caller)[0];
+  }
+  if ( $namespace eq 'Config::Simple') {
+    croak "You cannot import into 'Config::Simple' package";
+  }
+  my %vars = $self->vars();
+  no strict 'refs';
+  while ( my ($k, $v) = each %vars ) {
+    $k =~ s/\W/_/g;
+    ${$namespace . '::' . uc($k)} = $v;
+  }
+}
+
+
+
+# imports names from a file. Compare with import_names.
+sub import_from {
+  my ($class, $file, $arg) = @_;
+
+  if ( ref($class) ) {
+    croak "import_from() is not an object method.";
+  }
+  # this is a hash support
+  if ( defined($arg) && (ref($arg) eq 'HASH') ) {
+    my $cfg = $class->new($file) or return;
+    map { $arg->{$_} = $cfg->param($_) } $cfg->param();
+    return $cfg;
+  }
+  # following is the original version of our import_from():
+  unless ( defined $arg ) {
+    $arg = (caller)[0];
+  }  
+  my $cfg = $class->new($file) or return;
+  $cfg->import_names($arg);
+  return $cfg;
+}
+
+
+
+
+sub error {
+  my ($self, $msg) = @_;
+
+  if ( $msg ) {
+    $errstr = $msg;
+  }
+  return $errstr;
+}
+
+
+
+
+
+sub dump {
+  my ($self, $file, $indent) = @_;
+
+  require Data::Dumper;
+  my $d = new Data::Dumper([$self], [ref $self]);
+  $d->Indent($indent||2);
+  if ( defined $file ) {
+    sysopen(FH, $file, O_WRONLY|O_CREAT|O_TRUNC, 0600) or die $!;
+    print FH $d->Dump();
+    CORE::close(FH) or die $!;
+  }
+  return $d->Dump();
+}
+
+
+sub verbose {
+  DEBUG or return;
+  carp "****[$0]: " .  join ("", @_);
+}
+
+
+
+sub delete {
+  my ($self, $key) = @_;
+
+  my $syntax = $self->syntax() or die "No 'syntax' is defined";
+  if ( $syntax eq 'ini' ) {
+    my ($bn, $k) = $key =~ m/([^\.]+)\.(.*)/;
+    if ( defined($bn) && defined($k) ) {
+      delete $self->{_DATA}->{$bn}->{$k};
+    } else {
+      delete $self->{_DATA}->{$DEFAULTNS}->{$key};
+    }
+    return 1;
+  }
+  delete $self->{_DATA}->{$key};
+}
+
+
+
+
+#------------------
+# tie() interface
+#------------------
+
+sub TIEHASH {
+  my ($class, $file, $args) = @_;
+
+  unless ( defined $file ) {
+    croak "Usage: tie \%config, 'Config::Simple', \$filename";
+  }  
+  return $class->new($file);
+}
+
+
+sub FETCH {
+  my $self = shift;
+
+  return $self->param(@_);
+}
+
+
+sub STORE {
+  my $self = shift;
+
+  return $self->param(@_);
+}
+
+
+
+sub DELETE {
+  my $self = shift;
+
+  return $self->delete(@_);
+}
+
+
+sub CLEAR {
+  my $self = shift;
+  map { $self->delete($_) } $self->param();
+}
+
+
+sub EXISTS {
+  my ($self, $key) = @_;
+
+  my $vars = $self->vars();
+  return exists $vars->{$key};
+}
+
+
+
+sub FIRSTKEY {
+  my $self = shift;
+
+  # we make sure that tied hash is created ONLY if the program
+  # needs to use this functionality.
+  unless ( defined $self->{_TIED_HASH} ) {    
+    $self->{_TIED_HASH} = $self->vars();
+  }
+  my $temp = keys %{ $self->{_TIED_HASH} };
+  return scalar each %{ $self->{_TIED_HASH} };
+}
+
+
+sub NEXTKEY {
+  my $self = shift;
+
+  unless ( defined $self->{_TIED_HASH} ) {
+    $self->{_TIED_HASH} = $self->vars();
+  }
+  return scalar each %{ $self->{_TIED_HASH} };
+}
+
+
+
+
+
+# -------------------
+# deprecated methods
+# -------------------
+
+sub write_string {
+  my $self = shift;
+
+  return $self->as_string(@_);
+}
+
+sub hashref {
+  my $self = shift;
+
+  return scalar( $self->vars() );
+}
+
+sub param_hash {
+  my $self = shift;
+
+  return ($self->vars);
+}
+
+sub errstr {
+  my $self = shift;
+  return $self->error(@_);
+}
+
 
 
 

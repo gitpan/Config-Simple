@@ -7,6 +7,7 @@
 
 use strict;
 use Test;
+use FindBin '$RealBin';
 use File::Spec;
 BEGIN {
   plan tests => 4;
@@ -20,7 +21,7 @@ Config::Simple->import('-strict');
 # Insert your test code below, the Test::More module is use()ed here so read
 # its man page ( perldoc Test::More ) for help writing this test script.
 
-my $ini_file = File::Spec->catfile('t', 'new.cfg');
+my $ini_file = File::Spec->catfile($RealBin, 'new.cfg');
 
 my $cfg = new Config::Simple(syntax=>'ini');
 ok($cfg);

@@ -8,8 +8,8 @@
 
 use strict;
 use Test;
+use FindBin '$RealBin';
 use File::Spec;
-use Data::Dumper;
 BEGIN {
   plan tests => 6;
 }
@@ -23,7 +23,7 @@ ok(1);
 # Insert your test code below, the Test::More module is use()ed here so read
 # its man page ( perldoc Test::More ) for help writing this test script.
 
-my $file = File::Spec->catfile('t', 'project.ini');
+my $file = File::Spec->catfile($RealBin, 'project.ini');
 
 my $obj = undef;
 
