@@ -1,5 +1,5 @@
 
-# $Id: default.t,v 2.7 2002/11/03 02:59:41 sherzodr Exp $
+# $Id: default.t,v 2.8 2002/11/23 10:07:21 sherzodr Exp $
 use strict;
 use Test;
 use Config::Simple;
@@ -18,7 +18,7 @@ $cfg->autosave(0);
 ok ($cfg);
 ok ( $cfg->param(), 9 );
 ok( $cfg->param("author.l_name"), "Ruzmetov");
-ok ( $cfg->param('module.name'), "Config::Simple");
+ok ( $cfg->param('module.name'), "\"Config::Simple\"");
 
 $cfg->param(-name=>'module.name', -value=>"KewlThing");
 

@@ -34,7 +34,7 @@ DESCRIPTION
     to help you with it.
 
 REVISION
-    This manual refers to $Revision: 3.1 $
+    This manual refers to $Revision: 3.3 $
 
 CONFIGURATION FILE SYNTAX
     Syntax of the configuration file is similar to windows .ini files, where
@@ -192,6 +192,11 @@ METHODS
             $cfg->write('some.cfg.bak');        # creating backup copy
                                                 # before updating the contents
 
+    *   write_string() - creates and returns the content of the
+        configuration file as a string, instead of writing it into a file.
+        The string returned by write_string() is guaranteed to be the same
+        as what is written into a file.
+
     *   encoder() - sets a new encoder to be used in the form of coderef.
         This encoder will be used by write() before writing the values back
         to a file. Alternatively, you can define the encoder as an argument
@@ -223,6 +228,15 @@ CREDITS
 
     Ruslan U. Zakirov <cubic@wr.miee.ru>
         Default namespace suggestion and patch.
+
+    Adam Kennedy <cpan@ali.as>
+        Added a write_string() method, for getting the file as a string. Fix
+        for the case when the value is ''
+
+    Gavin Brown <gavin.brown@centralnic.com>
+        Proposed quoted values feature. This made configuration files
+        created by Config::Simple compatible with those expected by PHP's
+        parse_ini_file() function.
 
 AUTHOR
     Config::Simple is written and maintained by Sherzod Ruzmetov

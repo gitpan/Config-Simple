@@ -4,7 +4,10 @@ MANIFEST.SKIP
 Makefile.PL
 README
 Simple.pm
+t/autosave.cfg
+t/autosave.t
+t/create_new.t
 t/default.t
-t/sample.cfg
-t/defaultns.t
 t/defaultns.cfg
+t/defaultns.t
+t/sample.cfg

@@ -1,13 +1,21 @@
 package Config::Simple;
-# $Id: Simple.pm,v 3.1 2002/11/09 19:42:43 sherzodr Exp $
+# $Id: Simple.pm,v 3.7 2002/11/23 10:27:15 sherzodr Exp $
 
 use strict;
 use Carp 'croak';
 use Fcntl (':DEFAULT', ':flock');
+use Text::ParseWords;
 
-use vars qw($VERSION $DEFAULTNS);
+use vars qw($VERSION $DEFAULTNS $USEQQ);
 
-($VERSION) = '$Revision: 3.1 $' =~ m/Revision:\s*(\S+)/;
+sub import {
+    (undef) = shift;
+    for ( @_ ) {
+        $USEQQ = ($_ eq '-strict') || next;
+    }
+}
+
+($VERSION) = '$Revision: 3.7 $' =~ m/Revision:\s*(\S+)/;
 
 # Default namespace as suggested by Ruslan U. Zakirov <cubic@wr.miee.ru>
 $DEFAULTNS = "default";
@@ -24,6 +32,7 @@ sub new {
             filename => 0,
         },
         _data    => { },
+        _status  => 0,
 
     };
 
@@ -41,10 +50,13 @@ sub new {
             @_, };
     }
 
+    if ( $self->{_options}->{autosave} and ! $self->{_options}->{filename} ) {
+        croak "Cannot create autosave without a file name";
+    }
     bless($self, $class);
 
     if ( $self->{_options}->{filename} ) {
-        $self->read();
+        $self->read($self->{_options}->{filename});
     }
     return $self;
 }
@@ -54,7 +66,7 @@ sub new {
 sub DESTROY {
     my $self = shift;
 
-    if ( $self->{_options}->{autosave} ) {
+    if ( $self->{_options}->{autosave} && $self->{_options}->{filename}) {
         $self->write();
     }
 
@@ -78,11 +90,13 @@ sub read {
     }
 
     my $filename = $self->{_options}->{filename};
-
-    unless ( sysopen(CFG, $filename, O_RDWR|O_CREAT) ) {
-        croak "Couldn't read $filename: $!";
+    unless ( defined $filename ) {
+        croak "No file name specified";
     }
-    $self->{_fh} = \*CFG;
+
+    unless ( sysopen(CFG, $filename, O_RDONLY) ) {
+        croak "Couldn't read $filename: $!";
+    }    
     unless ( flock(CFG, LOCK_SH) ) {
         croak "Couldn't LOCK_SH $filename: $!";
     }
@@ -99,11 +113,24 @@ sub read {
     my $data    = {}; # to help the while() loop look less hairy
 
     while ( <CFG> ) {
+        # If we're processing the lines after the single dot (.),
+        # store everything as it is
         $afterdot                and $self->{_after_dot} .= $_, next;
+
+        # If we come accross empty lines or comments, skip them
         /^(\n|\#|;)/             and next;
-        /\s*\[([^\]]+)\]\s*/     and $ns = lc($1), next;
-        /\s*([^=]+?)\s*=\s*(.+)/ and $ns and $data->{$ns}->{lc($1)} = $self->_decode($2), next;
-        /\s*([^=]+?)\s*=\s*(.+)/ and $data->{$ns}->{lc($1)} = $self->_decode($2), next;
+
+        # If we came this far, we're guaranteed that the current line
+        # we're working on is either a block declaration like [something]
+        # or key=value pairs, or may be even a single dot (.) character.
+        
+        /\s*\[([^\]]+)\]\s*/     and $ns = lc($1), next;        
+        /\s*([^=]+?)\s*=\s*(.*)/ and $USEQQ ? 
+                                    ($data->{$ns}->{lc($1)} = (quotewords('\s+',0,$self->_decode($2)))[0]) :
+                                                ($data->{$ns}->{lc($1)} = $self->_decode($2)), next;
+                                        
+                                    
+
         /^\./                    and $afterdot=1, next;
 
         # If we came this far, something smells fishy around here
@@ -113,8 +140,8 @@ sub read {
     # don't forget to assign the $data to object
     $self->{_data} = $data;
 
-    unless ( flock(CFG, LOCK_UN) ) {
-        croak "Couldn't LOCK_UN $filename: $!";
+    unless ( close(CFG) ) {
+        croak "Couldn't close $filename: $!";
     }
 }
 
@@ -145,7 +172,7 @@ sub _get_param {
     }
 
     unless ( defined $param ) {
-        croak "_get_param(): RTFM!";
+        croak "_get_param(): Invalid parameter format";
     }
 
     return $self->{_data}->{$blockname}->{$param};
@@ -163,7 +190,7 @@ sub _set_param {
     my ($self, $blockname, $param, $value) = @_;
 
     if ( @_ < 3 ) {
-        croak "_set_param(): RTFM!";
+        croak "_set_param(): Insufficient arguments";
     }
 
     # if the last argument, value is missing, treat $param as $value,
@@ -174,7 +201,7 @@ sub _set_param {
     }
 
     unless ( $blockname ) {
-        croak "_set_param(): RTFM!";
+        croak "_set_param(): Invalid parameter format";
     }
 
     $self->{_data}->{lc($blockname)}->{lc($param)} = $value;
@@ -276,7 +303,30 @@ sub param {
         return $self->_set_param(@_);
     }
 
-    croak "Config::Simple->param() usage was incorrect!";
+    croak "param(): usage incorrect";
+}
+
+
+
+
+
+sub delete {
+    my $self = shift;
+
+    unless (@_) {
+        croak "delete(): Insufficient parameters";
+    }
+
+    my ($block, $param) = split (/\./, $_[0]);
+
+    # if block and $params are defined, we should clear
+    # only that particular key. Otherwise, we take it as a
+    # name of a whole block to be deleted
+    if ( defined($block) && defined($param) ) {
+        return delete $self->{_data}->{$block}->{$param};
+    }
+
+    return delete $self->{_data}->{ $_[0] };
 }
 
 
@@ -284,56 +334,66 @@ sub param {
 sub write {
     my ($self, $new_file) = @_;
 
-    my $data    = $self->{_data}    or return;
-    my $fh      = $self->{_fh}      or return;
-    my $file    = $self->{_options}->{filename};
+    # generating the content of the configuration file as a string    
+    my $contents = $self->write_string() or return;    
+    my $file    = $new_file || $self->{_options}->{filename};
 
-    if ( defined $new_file ) {
-        unless ( sysopen (NEWFILE, $new_file, O_WRONLY|O_CREAT|O_TRUNC, 0666) ) {
-            croak "Couldn't open $new_file: $!";
-        }
-        $fh = \*NEWFILE;
+    unless ( defined $file ) {
+        croak "Don't which where to write into";
+    }    
+    
+    unless ( sysopen (FILE, $file, O_WRONLY|O_CREAT|O_TRUNC, 0666) ) {
+        croak "Couldn't open $file: $!";
     }
-
-    unless ( flock ($fh, LOCK_EX) ) {
+    
+    unless ( flock (FILE, LOCK_EX) ) {
         croak "Couldn't LOCK_EX $file: $!";
+    }    
+    print FILE $contents;    
+
+    unless ( flock(FILE, LOCK_UN) ) {
+        croak "Couldn't unlock $file: $!";
     }
-
-    unless ( seek($fh, 0, 0) ) {
-        croak "Couldn't seek to the start of the file: $!";
-    }
-
-    unless ( truncate($fh, 0) ) {
-        croak "Couldn't truncate $file: $!";
-    }
+    
+    unless ( close(FILE) ) {
+        croak "Couldn't close $new_file: $!";
+    }    
+}
 
 
-    print $fh "# Maintained by Config::Simple/$VERSION\n";
-    print $fh '# ', "-" x 35, "\n\n\n";
+
+
+
+sub write_string {
+    my $self = shift;
+
+    my $data = $self->{_data} or return;
+
+    # Array to hold file lines
+    my @contents = ();
+
+    push @contents, "# Maintained by Config::Simple/$VERSION";
+    push @contents, '# ' . ("-" x 35), '', '';
 
     while ( my ($blockname, $block) = each %{$data} ) {
-        print $fh "[$blockname]\n";
+        push @contents, "[$blockname]";
         while ( my ($key, $value) = each %{$block} ) {
             $value = $self->_encode($value);
-            print $fh "$key=$value\n";
+            push @contents, "$key=$value";
         }
-        print $fh "\n\n";
+        push @contents, '', '';
     }
 
     if ( $self->{_after_dot} ) {
-        print $fh ".\n", $self->{_after_dot};
+        push @contents, ".", $self->{_after_dot};
     }
 
-    unless ( flock($fh, LOCK_UN) ) {
-        croak "Couldn't unlock $file: $!";
-    }
+    # Merge and return the file contents
+    return join "\n", @contents;
+ }
 
-    if ( defined $new_file ) {
-        unless ( close($fh) ) {
-            croak "Couldn't close $new_file: $!";
-        }
-    }
-}
+
+
 
 
 sub _encode {
@@ -429,8 +489,6 @@ Config::Simple - Simple Configuration File class
     database=test
 
 
-
-
     # In your program
 
     use Config::Simple;
@@ -459,7 +517,7 @@ help you with it.
 
 =head1 REVISION
 
-This manual refers to $Revision: 3.1 $
+This manual refers to $Revision: 3.7 $
 
 =head1 CONFIGURATION FILE SYNTAX
 
@@ -481,7 +539,33 @@ variable:
     $cfg = new Config::Simple("some.cfg");
 
 If you do not explicitly assign a namespace, "default" is implied. 
-( Thanks to Ruslan U. Zakirov <cubic@wr.miee.ru> for this useful feature )
+
+By default, Config::Simple treats everything after the '=' to the end of the
+line as configuration value (spaces trimmed). Unfortunately, other configuration
+file parsing utilities do not quite aggree with the idea, and assert if the
+value contains non-alphanumerics, they should be enclosed in double quotes (").
+Config::Simple supports this syntax as well. If you intend to use this syntax,
+you should enable "-strict" switch like so:
+
+    use Config::Simple qw/-strict/;
+
+Now Config::Simple expects to see any values that contain non-alphanumeric
+characters in double quotes. Double quotes to be used inside the value should
+be escaped with \ (backslash):
+
+    [default]
+    nick = sherzodR
+    name = "Sherzod Ruzmetov"
+    url  = "http://author.ultracgis.com"
+    email= "sherzodr@cpan.org"
+    quoted = "My favorite quote is \"Learn as if you were to live forever\""
+    age  = 22
+
+Enabling "-strict" switch is also useful to keep trailing and leading spaces in 
+configuration values:
+
+    [default]
+    signature = "            Foo Bar                   "
 
 Lines starting with '#' or ';' to the end of the line are considered comments,
 thus ignored while parsing. Line, containing a single dot is the logical end
@@ -642,6 +726,13 @@ before making any changes to it:
     $cfg->write('some.cfg.bak');        # creating backup copy
                                         # before updating the contents
 
+
+=item *
+
+write_string() - creates and returns the content of the configuration file as a string,
+instead of writing it into a file. The string returned by write_string() is guaranteed
+to be the same as what is written into a file.
+
 =item *
 
 encoder() - sets a new encoder to be used in the form of coderef. This encoder
@@ -658,14 +749,12 @@ Alternatively, you can define the decoder as an argument to constructor ( see L<
 
 autosave() - sets autosave value (see L<new()>)
 
-
 =item *
 
 dump() - dumps the object data structure either to STDOUT or into a filename which
 can be defined as the first argument. Used for debugging only
 
 =back
-
 
 =head1 CREDITS
 
@@ -685,6 +774,16 @@ Fixed the bugs in the TIEHASH method.
 =item Ruslan U. Zakirov <cubic@wr.miee.ru>
 
 Default namespace suggestion and patch.
+
+=item Adam Kennedy <cpan@ali.as>  
+
+Added a write_string() method, for getting the file as a string.
+Fix for the case when the value is ''
+
+=item Gavin Brown <gavin.brown@centralnic.com>
+
+Proposed quoted values feature. This made configuration files created by
+Config::Simple compatible with those expected by PHP's parse_ini_file() function.
 
 =back
 
