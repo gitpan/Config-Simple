@@ -1,6 +1,6 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.50 2003/04/29 01:42:25 sherzodr Exp $
+# $Id: Simple.pm,v 3.53 2004/07/28 21:16:04 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
@@ -13,7 +13,7 @@ use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 use AutoLoader 'AUTOLOAD';
 
 
-$VERSION   = '4.55';
+$VERSION   = '4.56';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -129,23 +129,41 @@ sub syntax {
 }
 
 
+# takes a filename or a file handle and returns a filehandle
+sub _get_fh {
+  my ($self, $arg, $mode) = @_;  
+  
+  unless ( defined $arg ) {
+    croak "_get_fh(): filename is missing";
+  }
+  if ( ref($arg) && (ref($arg) eq 'GLOB') ) {
+    return ($arg, 0);
+  }
+  $mode ||= O_RDWR;
+  unless ( sysopen(FH, $arg, $mode) ) {
+    $self->error("couldn't open $arg: $!");
+    return undef;
+  }
+  return (\*FH, 1);
+}
+
 
 
 sub read {
   my ($self, $file) = @_;
-
+  
+  # making sure one object doesn't work on more than one
+  # file at a time
   if ( defined $self->{_FILE_HANDLE} ) {
     croak "Open file handle detected. If you're trying to parse another file, close() it first.";
   }
-  unless ( $file ) {
+  unless ( defined $file ) {
     croak "Usage: OBJ->read(\$file_name)";
-  }
-  unless ( sysopen(FH, $file, O_RDONLY) ) {
-    $self->error("Couldn't read '$file': $!");
-    return undef;
-  }
+  }  
+  
   $self->{_FILE_NAME}   = $file;
-  $self->{_FILE_HANDLE} = \*FH;
+  $self->{_FILE_HANDLE} = $self->_get_fh($file, O_RDONLY) or return undef;
+    
   $self->{_SYNTAX} = $self->guess_syntax(\*FH) or return undef;
 
   # call respective parsers
@@ -169,7 +187,7 @@ sub close {
   unless ( close($fh) ) {
     $self->error("couldn't close the file: $!");
     return undef;
-  }  
+  }
   return 1;
 }
 
@@ -234,17 +252,9 @@ sub guess_syntax {
 
 
 sub parse_ini_file {
-  my ($class, $fh) = @_;
+  my ($class, $file) = @_;
 
-  my $close_fh = 0;
-  unless ( ref($fh) eq 'GLOB' ) {
-    unless (sysopen(CFG_FILE, $fh, O_RDONLY) ) {
-      $errstr = "couldn't open $fh for reading: $!";
-      return undef;
-    }    
-    $fh = \*CFG_FILE;
-    $close_fh = 1;
-  }
+  my ($fh, $close_fh) = $class->_get_fh($file, O_RDONLY) or return;
   unless(flock($fh, LOCK_SH) ) {
     $errstr = "couldn't acquire shared lock on $fh: $!";
     return undef;
@@ -266,7 +276,7 @@ sub parse_ini_file {
     # Perl Cookbook 8.1
     if ( $line =~ s/\\\s*$// ) {
       my $next_line = <$fh>;
-      $next_line =~ s/^\s+//;      
+      $next_line =~ s/^\s+//;
       #die $next_line;
       $line .= $next_line;
       redo unless eof($fh);
@@ -305,17 +315,10 @@ sub lcase {
 
 
 sub parse_cfg_file {
-  my ($class, $fh) = @_;
+  my ($class, $file) = @_;
 
-  my $close_fh = 0;
-  unless ( ref($fh) eq 'GLOB' ) {
-    unless(sysopen(CFG_FILE, $fh, O_RDONLY)) {
-      $errstr = "couldn't open $fh for reading: $!";
-      return undef;
-    }    
-    $fh = \*CFG_FILE;
-    $close_fh = 1;
-  }
+  my ($fh, $close_fh) = $class->_get_fh($file, O_RDONLY) or return;
+    
   unless ( flock($fh, LOCK_SH) ) {
     $errstr = "couldn't get shared lock on $fh: $!";
     return undef;
@@ -354,17 +357,9 @@ sub parse_cfg_file {
 
 
 sub parse_http_file {
-  my ($class, $fh) = @_;
+  my ($class, $file) = @_;
 
-  my $close_fh = 0;
-  unless ( ref($fh) eq 'GLOB' ) {
-    unless( sysopen(CFG_FILE, $fh, O_RDONLY) ) {
-      $errstr = "couldn't open $fh for reading: $!";
-      return undef;
-    }
-    $fh = \*CFG_FILE;
-    $close_fh = 1;
-  }
+  my ($fh, $close_fh) = $class->_get_fh($file) or return;    
   unless ( flock($fh, LOCK_SH) ) {
     $errstr = "couldn't get shared lock on file: $!";
     return undef;
@@ -600,42 +595,42 @@ sub save {
 
 # generates a writable string
 sub as_string {
-  my $self = shift;
+    my $self = shift;
 
-  my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is not defined";
-  my $sub_syntax = $self->{_SUB_SYNTAX} || '';
-  my $currtime = localtime;
-  my $STRING = undef;
-  if ( $syntax eq 'ini' ) {
-    $STRING .= "; Config::Simple $VERSION\n";
-    $STRING .= "; $currtime\n\n";
-    while ( my ($block_name, $key_values) = each %{$self->{_DATA}} ) {
-      unless ( $sub_syntax eq 'simple-ini' ) {
-        $STRING .= sprintf("[%s]\n", $block_name);
-      }
-      while ( my ($key, $value) = each %{$key_values} ) {
-        my $values = join (WRITE_DELIM, map { quote_values($_) } @$value) or next;
-        $STRING .= sprintf("%s=%s\n", $key, $values );
-      }
-      $STRING .= "\n";
+    my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is not defined";
+    my $sub_syntax = $self->{_SUB_SYNTAX} || '';
+    my $currtime = localtime;
+    my $STRING = undef;
+    if ( $syntax eq 'ini' ) {
+        $STRING .= "; Config::Simple $VERSION\n";
+        $STRING .= "; $currtime\n\n";
+        while ( my ($block_name, $key_values) = each %{$self->{_DATA}} ) {
+            unless ( $sub_syntax eq 'simple-ini' ) {
+                $STRING .= sprintf("[%s]\n", $block_name);
+            }
+            while ( my ($key, $value) = each %{$key_values} ) {
+                my $values = join (WRITE_DELIM, map { quote_values($_) } @$value);
+                $STRING .= sprintf("%s=%s\n", $key, $values );
+            }
+            $STRING .= "\n";
+        }
+    } elsif ( $syntax eq 'http' ) {
+        $STRING .= "# Config::Simple $VERSION\n";
+        $STRING .= "# $currtime\n\n";
+        while ( my ($key, $value) = each %{$self->{_DATA}} ) {
+            my $values = join (WRITE_DELIM, map { quote_values($_) } @$value);
+            $STRING .= sprintf("%s: %s\n", $key, $values);
+        }
+    } elsif ( $syntax eq 'simple' ) {
+        $STRING .= "# Config::Simple $VERSION\n";
+        $STRING .= "# $currtime\n\n";
+        while ( my ($key, $value) = each %{$self->{_DATA}} ) {
+            my $values = join (WRITE_DELIM, map { quote_values($_) } @$value);
+            $STRING .= sprintf("%s %s\n", $key, $values);
+        }
     }
-  } elsif ( $syntax eq 'http' ) {
-    $STRING .= "# Config::Simple $VERSION\n";
-    $STRING .= "# $currtime\n\n";
-    while ( my ($key, $value) = each %{$self->{_DATA}} ) {
-      my $values = join (WRITE_DELIM, map { quote_values($_) } @$value) or next;
-      $STRING .= sprintf("%s: %s\n", $key, $values);
-    }
-  } elsif ( $syntax eq 'simple' ) {
-    $STRING .= "# Config::Simple $VERSION\n";
-    $STRING .= "# $currtime\n\n";
-    while ( my ($key, $value) = each %{$self->{_DATA}} ) {
-      my $values = join (WRITE_DELIM, map { quote_values($_) } @$value) or next;
-      $STRING .= sprintf("%s %s\n", $key, $values);
-    }
-  }
-  $STRING .= "\n";
-  return $STRING;
+    $STRING .= "\n";
+    return $STRING;
 }
 
 
@@ -677,6 +672,12 @@ sub delete {
 }
 
 
+
+# clears the '_DATA' entirely.
+sub clear {
+  my $self = shift;
+  map { $self->delete($_) } $self->param;
+}
 
 
 
@@ -1308,28 +1309,26 @@ L<Config::General>, L<Config::Simple>, L<Config::Tiny>
 
 # Following methods are loaded on demand.
 
-# clears the '_DATA' entirely.
-sub clear {
-  my $self = shift;
-  map { $self->delete($_) } $self->param;
-}
 
 
 # returns all the keys as a hash or hashref
 sub vars {
   my $self = shift;
 
-  my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is not defined";
+  # it might seem we should have used get_param() or param()
+  # methods to make the task easier, but param() itself uses 
+  # vars(), so it will result in a deep recursion
   my %vars = ();
+  my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is not defined";
   if ( $syntax eq 'ini' ) {
     while ( my ($block, $values) = each %{$self->{_DATA}} ) {
       while ( my ($k, $v) = each %{$values} ) {
-        $vars{"$block.$k"} = defined($v->[1]) ? $v : $v->[0];
+        $vars{"$block.$k"} = (@{$v} > 1) ? $v : $v->[0];
       }
     }
   } else {
     while ( my ($k, $v) = each %{$self->{_DATA}} ) {
-      $vars{$k} = $v->[1] ? $v : $v->[0];
+      $vars{$k} = (@{$v} > 1) ? $v : $v->[0];
     }
   }
   return wantarray ? %vars : \%vars;

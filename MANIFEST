@@ -18,3 +18,4 @@ t/simple.t
 t/simplified-ini.t
 t/simplified.ini
 t/tie.t
+META.yml                                Module meta-data (added by MakeMaker)

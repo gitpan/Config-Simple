@@ -10,7 +10,7 @@ use Test;
 use FindBin '$RealBin';
 use File::Spec;
 BEGIN {
-  plan tests => 4;
+  plan tests => 11;
 }
 require Config::Simple;
 ok(1);
@@ -31,10 +31,28 @@ $cfg->param("mysql.dsn", "DBI:mysql:db;host=handalak.com");
 $cfg->param("mysql.user", "sherzodr");
 $cfg->param("mysql.pass", 'marley01');
 $cfg->param("site.title", 'sherzodR "The Geek"');
+$cfg->param("debug.state", 0);
+$cfg->param("debug.delim", "");
 
 ok($cfg->write($ini_file));
 ok( -e $ini_file );
 
-unlink ( $ini_file );
 
+#
+# There was a bug report, according to which if value of a key evaluates
+# to false, (such as "" or 0), Config::Simple wouldn't store them in a file
+#
+
+$cfg = Config::Simple->new($ini_file);
+ok($cfg);
+
+for (qw/mysql.dsn mysql.user mysql.pass site.title/) {
+    ok( $cfg->param($_) );
+}
+
+for ( qw/debug.state debug.delim/ ) {
+    ok( defined $cfg->param($_) );
+}
+
+unlink ( $ini_file );
 

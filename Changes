@@ -1,5 +1,12 @@
  Change log for Config::Simple
-  $Date: 2003/04/29 19:21:07 $
+  $Date: 2004/07/28 21:16:04 $
+
+4.56 (current)
+    * clear() method is no longer autoloaded to avoid collisions with CLEAR()
+      on Win32 systems.
+	* FIXED: if value of a key evaluated to false the whole key wasn't being stored
+	  in the config file.
+
 
 4.55
     * vars() was buggy if a key in the configuration file was a list and the second
@@ -93,4 +100,4 @@
     * much improved write()
 
 
-$Revision: 3.28 $
+$Revision: 3.30 $
