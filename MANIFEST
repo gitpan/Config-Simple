@@ -3,3 +3,5 @@ Makefile.PL
 MANIFEST
 README
 Simple.pm
+t/sample.cfg
+t/default.t
