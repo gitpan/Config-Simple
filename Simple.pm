@@ -1,14 +1,16 @@
 package Config::Simple;
-# $Id: Simple.pm,v 3.0 2002/11/03 02:59:22 sherzodr Exp $
+# $Id: Simple.pm,v 3.1 2002/11/09 19:42:43 sherzodr Exp $
 
 use strict;
 use Carp 'croak';
 use Fcntl (':DEFAULT', ':flock');
 
-use vars qw($VERSION);
+use vars qw($VERSION $DEFAULTNS);
 
-($VERSION) = '$Revision: 3.0 $' =~ m/Revision:\s*(\S+)/;
+($VERSION) = '$Revision: 3.1 $' =~ m/Revision:\s*(\S+)/;
 
+# Default namespace as suggested by Ruslan U. Zakirov <cubic@wr.miee.ru>
+$DEFAULTNS = "default";
 
 sub new {
     my $class = shift;
@@ -25,7 +27,7 @@ sub new {
 
     };
 
-    # If there's only one argument, consider it's the filename
+    # If there's only one argument, consider it the filename
     if ( @_ == 1 ) {
         $self->{_options}->{filename} = $_[0];
 
@@ -87,17 +89,29 @@ sub read {
 
     # whitespace support (\s*) added by Michael Caldwell <mjc@mjcnet.com>
     # date: Tuesday, May 14, 2002
-    my ($blockname, $afterdot);
+
+    # default namespace suggestion and partial patch submitted by
+    # Ruslan U. Zakirov <cubic@wr.miee.ru>
+    # date: Sat, Nov 09, 2002
+
+    my $afterdot= 0;
+    my $ns      = $DEFAULTNS;
+    my $data    = {}; # to help the while() loop look less hairy
+
     while ( <CFG> ) {
-        $afterdot                   and $self->{_after_dot} .= $_, next;
-        /^(\n|\#|;)/                and next;
-        /\s*\[([^\]]+)\]\s*/        and $blockname = lc($1), next;
-        /\s*([^=]+?)\s*=\s*(.+)/    and $self->{_data}->{$blockname}->{lc($1)}=$self->_decode($2), next;
-        /^\./                       and $afterdot=1, next;
+        $afterdot                and $self->{_after_dot} .= $_, next;
+        /^(\n|\#|;)/             and next;
+        /\s*\[([^\]]+)\]\s*/     and $ns = lc($1), next;
+        /\s*([^=]+?)\s*=\s*(.+)/ and $ns and $data->{$ns}->{lc($1)} = $self->_decode($2), next;
+        /\s*([^=]+?)\s*=\s*(.+)/ and $data->{$ns}->{lc($1)} = $self->_decode($2), next;
+        /^\./                    and $afterdot=1, next;
 
         # If we came this far, something smells fishy around here
         croak "Syntax error on line $.:'$_'";
     }
+
+    # don't forget to assign the $data to object
+    $self->{_data} = $data;
 
     unless ( flock(CFG, LOCK_UN) ) {
         croak "Couldn't LOCK_UN $filename: $!";
@@ -285,16 +299,17 @@ sub write {
         croak "Couldn't LOCK_EX $file: $!";
     }
 
-    unless ( truncate($fh, 0) ) {
-        croak "Couldn't truncate $file: $!";
-    }
-
     unless ( seek($fh, 0, 0) ) {
         croak "Couldn't seek to the start of the file: $!";
     }
 
-    print $fh "; Maintained by Config::Simple/$VERSION\n";
-    print $fh '; ', "-" x 35, "\n\n\n";
+    unless ( truncate($fh, 0) ) {
+        croak "Couldn't truncate $file: $!";
+    }
+
+
+    print $fh "# Maintained by Config::Simple/$VERSION\n";
+    print $fh '# ', "-" x 35, "\n\n\n";
 
     while ( my ($blockname, $block) = each %{$data} ) {
         print $fh "[$blockname]\n";
@@ -444,7 +459,39 @@ help you with it.
 
 =head1 REVISION
 
-This manual refers to $Revision: 3.0 $
+This manual refers to $Revision: 3.1 $
+
+=head1 CONFIGURATION FILE SYNTAX
+
+Syntax of the configuration file is similar to windows .ini files, where
+configuration variables and their values are seperated with '=' sign, 
+each set belongind to a specific namespace (block):
+
+	[block]
+	var1=value1
+	var2=value2
+
+If the block is missing, or any of the key=value pairs are encountered
+without prior block declaration, they will be assigned to a virtual block.
+Name of the virtual block is controlled with B<$Config::Simple::DEFAULTNS>
+variable:
+
+    use Config::Simple;
+    $Config::Simple::DEFAULTNS = "root";
+    $cfg = new Config::Simple("some.cfg");
+
+If you do not explicitly assign a namespace, "default" is implied. 
+( Thanks to Ruslan U. Zakirov <cubic@wr.miee.ru> for this useful feature )
+
+Lines starting with '#' or ';' to the end of the line are considered comments,
+thus ignored while parsing. Line, containing a single dot is the logical end
+of the configuration file (doesn't necessaryily have to be the physical end though ).
+So everything after that line is also ignored. 
+
+Note, when you ask Config::Simple to save the changes back, all the comments
+will be discarded, but everything after that final dot is stored back as it was. 
+
+I admit, keeping the comments would be quite useful too. May be in subsequent releases.
 
 =head1 CONSTRUCTOR
 
@@ -619,6 +666,7 @@ can be defined as the first argument. Used for debugging only
 
 =back
 
+
 =head1 CREDITS
 
 Following people contributed with patches and/or suggestions to the Config::Simple.
@@ -633,6 +681,10 @@ Added witespace support in the configuration files, which enables custom identat
 =item Scott Weinstein (Scott.Weinstein@lazard.com)
 
 Fixed the bugs in the TIEHASH method.
+
+=item Ruslan U. Zakirov <cubic@wr.miee.ru>
+
+Default namespace suggestion and patch.
 
 =back
 

@@ -13,7 +13,7 @@ SYNOPSIS
 
         use Config::Simple;
 
-        my $cfg = new Config::Simple("some.cfg");    
+        my $cfg = new Config::Simple("some.cfg");
 
         # reading
         my $user = $cfg->param('mysql.user');
@@ -34,7 +34,41 @@ DESCRIPTION
     to help you with it.
 
 REVISION
-    This manual refers to $Revision: 3.0 $
+    This manual refers to $Revision: 3.1 $
+
+CONFIGURATION FILE SYNTAX
+    Syntax of the configuration file is similar to windows .ini files, where
+    configuration variables and their values are seperated with '=' sign,
+    each set belongind to a specific namespace (block):
+
+            [block]
+            var1=value1
+            var2=value2
+
+    If the block is missing, or any of the key=value pairs are encountered
+    without prior block declaration, they will be assigned to a virtual
+    block. Name of the virtual block is controlled with
+    $Config::Simple::DEFAULTNS variable:
+
+        use Config::Simple;
+        $Config::Simple::DEFAULTNS = "root";
+        $cfg = new Config::Simple("some.cfg");
+
+    If you do not explicitly assign a namespace, "default" is implied. (
+    Thanks to Ruslan U. Zakirov <cubic@wr.miee.ru> for this useful feature )
+
+    Lines starting with '#' or ';' to the end of the line are considered
+    comments, thus ignored while parsing. Line, containing a single dot is
+    the logical end of the configuration file (doesn't necessaryily have to
+    be the physical end though ). So everything after that line is also
+    ignored.
+
+    Note, when you ask Config::Simple to save the changes back, all the
+    comments will be discarded, but everything after that final dot is
+    stored back as it was.
+
+    I admit, keeping the comments would be quite useful too. May be in
+    subsequent releases.
 
 CONSTRUCTOR
     "new()" - constructor, initializes and returns Config::Simple object.
@@ -154,7 +188,7 @@ METHODS
         before making any changes to it:
 
             $cfg = new Config::Simple(filename=>'some.cfg', autosave=>1);
-    
+
             $cfg->write('some.cfg.bak');        # creating backup copy
                                                 # before updating the contents
 
@@ -163,13 +197,13 @@ METHODS
         to a file. Alternatively, you can define the encoder as an argument
         to constructor ( see the new() entry elsewhere in this document ).
 
-    *   decoder - sets a new decoder to be used in the form of coderef. This
-        decoder is used by read() ( see the read() entry elsewhere in this
-        document ), so should be set (if at all) before calling read().
+    *   decoder() - sets a new decoder to be used in the form of coderef.
+        This decoder is used by read() ( see the read() entry elsewhere in
+        this document ), so should be set (if at all) before calling read().
         Alternatively, you can define the decoder as an argument to
         constructor ( see the new() entry elsewhere in this document ).
 
-    *   autosave - sets autosave value (see the new() entry elsewhere in
+    *   autosave() - sets autosave value (see the new() entry elsewhere in
         this document)
 
     *   dump() - dumps the object data structure either to STDOUT or into a
@@ -187,13 +221,16 @@ CREDITS
     Scott Weinstein (Scott.Weinstein@lazard.com)
         Fixed the bugs in the TIEHASH method.
 
+    Ruslan U. Zakirov <cubic@wr.miee.ru>
+        Default namespace suggestion and patch.
+
 AUTHOR
     Config::Simple is written and maintained by Sherzod Ruzmetov
     <sherzodr@cpan.org>
 
 COPYRIGHT
         This library is a free software, and can be modified and redistributed
-        under the same terms as Perl itself. 
+        under the same terms as Perl itself.
 
 SEE ALSO
     the Config::General manpage

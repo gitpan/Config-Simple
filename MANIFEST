@@ -6,3 +6,5 @@ README
 Simple.pm
 t/default.t
 t/sample.cfg
+t/defaultns.t
+t/defaultns.cfg
