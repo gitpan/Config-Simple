@@ -3,9 +3,8 @@ package Config::Simple;
 require 5.003;
 
 use strict;
-use Carp;
+use Carp 'croak';
 use File::Copy;
-use IO::File;
 use Fcntl qw(:DEFAULT :flock);
 
 require Exporter;
@@ -13,7 +12,7 @@ use vars qw($VERSION @ISA @EXPORT $MD5 $errstr $LOCK_FILE);
 
 @ISA = qw(Exporter);
 
-$VERSION = "2.81";
+$VERSION = "2.82";
 
 eval {
     for ( @Fcntl::EXPORT ) {
@@ -27,10 +26,8 @@ eval {
 $MD5 = 1;
 
 eval {  require Digest::MD5 };
-
 if ( $@ ) {
-    $MD5 = 0;
-    carp "Please install Digest::MD5 from your nearest CPAN mirror: perl -MCPAN -e 'install Digest::MD5')";
+    $MD5 = 0;    
 }
 
 
@@ -67,14 +64,13 @@ sub new {
 
     # creating a digest of the file...
     if ( $MD5 and -e $self->{_options}{filename} ) {
-        my $fh = new IO::File $self->{_options}->{filename}, O_RDONLY
-            or carp "Couldn't open $self->{_options}{filename}, $!";
-        flock ($fh, LOCK_SH|LOCK_NB) or carp "Couldn't acquire a lock on $self->{_options}{filename}, $!";
+		sysopen (FH, $self->{_options}->{filename}, O_RDONLY) or croak "Could not open $self->{_options}->{filename}";
+        flock (FH, LOCK_SH|LOCK_NB) or croak "Couldn't acquire a lock on $self->{_options}{filename}, $!";
 
         my $md5 = Digest::MD5->new();
-        $md5->addfile(\$fh);
+        $md5->addfile(\*FH);
         $self->{_checksum} = $md5->hexdigest();
-        $fh->close();
+        close(FH);
     }
 
     bless $self => $class;
@@ -97,14 +93,14 @@ sub _init {
     my $mode = $self->{_options}->{mode};
     my $file = $self->{_options}{filename};
 
+	sysopen (FH, $file, $mode) or croak "Could not open $file, $!";
+    flock (FH, LOCK_SH) or croak "Couldn't get lock on $file, $!";
 
-    my $fh = new IO::File ($file, $mode) or $errstr = "Couldn't open $file, $!", return undef;
-    flock ($fh, LOCK_SH|LOCK_NB) or $errstr = "Couldn't get lock on $file, $!", return undef;
-
-    my $title = "";
-    my $after_dot = 0;
+	my ($title, $after_dot);
+    #my $title = "";
+    #my $after_dot = 0;
     local $/ = "\n";
-    while ( <$fh> ) {
+    while ( <FH> ) {
 
         # whitespace support (\s*) added by Michael Caldwell <mjc@mjcnet.com>
         # date: Tuesday, May 14, 2002
@@ -120,7 +116,7 @@ sub _init {
 
     }
 
-    $fh->close();
+    close(FH);
     return 1;
 }
 
@@ -312,26 +308,24 @@ sub write {
     # program was running...
     if ( $MD5 and !$new_file ) {
 
-        my $checksum = new IO::File($self->{_options}->{filename}) or carp "Couldn't open $self->{_options}{filename} for reading, $!";
-        flock ($checksum, LOCK_SH|LOCK_NB) or carp "Couldn't acquire lock on $self->{_options}{filename}, $!";
+		sysopen (CHECKSUM, $self->{_options}->{filename}, O_RDONLY) 
+			or croak "Could not open $self->{_options}->{filename}, $!";
+        
+        flock (CHECKSUM, LOCK_SH) or croak "Couldn't acquire lock on $self->{_options}{filename}, $!";
         my $md5 = Digest::MD5->new();
-        $md5->addfile(\$checksum);
-        $checksum->close();
+        $md5->addfile(\*CHECKSUM);
+        close(CHECKSUM);
 
-        if ( ($self->{_checksum} ne $md5->hexdigest) and (not $self->{_tied_access} ) ) {
-            carp "File's contents have been modified by the third party. Creating a backup copy of the old one";
-            copy($file, $file . ".bk");
+        if ( ($self->{_checksum} ne $md5->hexdigest) and (not $self->{_tied_access} ) ) {            
+            File::Copy::copy($file, $file . ".bk");
         }
     }
 
-    my $lck = new IO::File($lock, O_RDONLY | O_CREAT) or $errstr = "Couldn't access $lock, $!", return undef;
-    flock($lck, LOCK_EX) or $errstr = "Couldn't get exclusive lock on $lock, $!", return undef;
+    sysopen (FH, $new_file || $file, O_RDWR|O_CREAT|O_TRUNC, 0664) or croak "Could not truncate the file, $!";
+	flock (FH, LOCK_EX) or croak "Could not  get lock on the configuration file";
+	select (FH);
 
-    my $fh = new IO::File($new_file || $file, O_RDWR | O_CREAT | O_TRUNC, 0666) or $errstr = "Couldn't truncate $file, $!", return undef;
-    select ($fh);
-
-    print "; Maintained by Config::Simple/$VERSION\n";
-    print "; Get the latest version from http://www.CPAN.org or your nearest CPAN mirror\n";
+    print "; Maintained by Config::Simple/$VERSION\n";    
     print "; ", "-" x 70, "\n\n";
 
     while ( my($block, $values) = each %{ $self->{_cfg} } ) {
@@ -349,61 +343,15 @@ sub write {
     }
 
     select (STDOUT);
-    $fh->close();
-    $lck->close();
-    unlink $lock;
+	close (FH);
+
+    
+    
 
 }
 
 
 
-
-sub load {
-    my $self = shift;
-
-    # $config->load($cgi);
-    if ( scalar @_ == 1 ) {
-        unless ( ref($_[0]) ) {
-            $errstr = "load() didn't get expected CGI object";
-            return undef;
-        }
-
-        my $cgi = $_[0];
-        while ( my ($block, $values) = each %{ $self->{_cfg} } ) {
-            for my $key ( keys %{$values} ) {
-                $cgi->param(-name=>$block . '.' . $key, -value=>$values->{$key});
-            }
-        }
-        return $cgi;
-    }
-
-    # $config->load($cgi, $block);
-    if ( scalar @_== 2 ) {
-
-        unless ( ref ($_[0]) ) {
-            $errstr =  "load() didn't get expcted CGI object as the first argument";
-            return undef;
-        }
-
-        my $cgi = $_[0];
-        while ( my ($key, $value) = each %{$self->{_cfg}{$_[1]} } ) {
-            $cgi->param(-name=>$_[1] . '.' . $key, -value=>$value);
-        }
-        return $cgi;
-    }
-
-    $errstr = "Didn't understand the usage. Please refer to online docs of Config::Simple";
-    return undef;
-}
-
-
-
-# not sure if it's the right way. Let me know
-sub clone {
-    my $self = shift;
-
-    return bless $self, ref($self);
-}
 
 
 
