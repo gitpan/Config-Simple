@@ -30,7 +30,9 @@ my $obj = undef;
 ok($obj = tie my %Config, 'Config::Simple', $file);
 ok( exists $Config{'Project\1.Count'} );
 ok( $Config{'Project\0.Name'} eq 'Default' );
-ok( scalar( keys %Config ) == 25 );
+ok( scalar( keys %Config ) == 24 );
 delete $Config{'Project\1.Count'};
 ok ( exists($Config{'Project\1.Count'}) ? 0 : 1);
+
+#print tied(%Config)->dump;
 

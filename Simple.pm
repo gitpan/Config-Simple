@@ -1,6 +1,6 @@
 package Config::Simple;
 
-# Simple.pm,v 3.54 2004/10/17 22:31:38 sherzodr Exp
+# $Id: Simple.pm,v 3.55 2005/02/10 18:57:16 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
@@ -13,7 +13,7 @@ use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 use AutoLoader 'AUTOLOAD';
 
 
-$VERSION   = '4.57';
+$VERSION   = '4.58';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -276,7 +276,7 @@ sub parse_ini_file {
   while ( defined($line=<$fh>) ) {
     # skipping comments and empty lines:
 
-    $line =~ /^(\n|\#|;)/  and next;
+    $line =~ /^\s*(\n|\#|;)/  and next;
     $line =~ /\S/          or  next;
 
     chomp $line;

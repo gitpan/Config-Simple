@@ -1,7 +1,13 @@
  Change log for Config::Simple
-  2004/10/17 22:31:38
+  $Date: 2005/02/10 18:57:16 $
 
-4.57 (current)
+4.58    - Thursday, February 10, 2005
+
+    * FIXED: if commented lines had leading spaces tests Config::Simple failed
+      to parse them properly. Thanks to Ricky Nance for pointing this out.
+
+
+4.57 
 	* FIXED [BUG 7793] - http://rt.cpan.org/NoAuth/Bug.html?id=7793
 	* FIXED [BUG 6252] - http://rt.cpan.org/NoAuth/Bug.html?id=6252
 
@@ -104,4 +110,4 @@
     * much improved write()
 
 
-3.31
+$Revision: 3.32 $
