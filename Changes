@@ -1,4 +1,8 @@
 
+WHAT'S  NEW IN 4.2?
+   * Using Fcntl.pm for more portable O_* values
+
+
 WHAT'S NEW in 4.0?
 
   * Support for multiple values using comma (,);

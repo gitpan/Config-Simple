@@ -1,13 +1,14 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.15 2003/02/20 11:12:12 sherzodr Exp $
+# $Id: Simple.pm,v 3.17 2003/02/21 08:03:14 sherzodr Exp $
 
 use strict;
 use Carp;
+use Fcntl (':DEFAULT', ':flock');
 use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 
-$VERSION   = '4.1';
+$VERSION   = '4.2';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -18,16 +19,6 @@ sub import {
 }
 
 
-# fcntl constants
-sub O_APPEND   () { return 1024   }
-sub O_CREAT    () { return 64     }
-sub O_EXCL     () { return 128    }
-sub O_RDWR     () { return 2      }
-sub O_TRUNC    () { return 512    }
-sub O_WRONLY   () { return 1      }
-sub LOCK_EX    () { return 2      }
-sub LOCK_SH    () { return 1      }
-sub LOCK_UN    () { return 8      }
 
 # delimiter used by Text::ParseWords::parse_line()
 sub READ_DELIM () { return '\s*,\s*' }

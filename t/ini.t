@@ -27,9 +27,10 @@ my $vars = $cfg->vars();
 
 ok($vars->{'Project\2.Name'} eq 'MPFCU');
 
-
 ok($cfg->param(-name=>'Project\100.Name', -value =>'Config::Simple'));
 ok($cfg->param(-name=>'Project\100.Names', -values=>['First Name', 'Second name']));
+
+ok($cfg->param('Project\1.Count', 9));
 
 #$cfg->dump('ini.dump');
 

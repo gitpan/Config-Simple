@@ -4,9 +4,11 @@ MANIFEST.SKIP
 Makefile.PL
 README
 Simple.pm
+t/create.t
 t/ini.t
 t/project.ini
 t/simple.cfg
 t/simple.t
 t/simplified-ini.t
 t/simplified.ini
+t/tie.t
