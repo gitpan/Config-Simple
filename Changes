@@ -1,0 +1,6 @@
+Revision history for Perl extension Config::Simple.
+
+0.01  Fri Oct 19 03:10:32 2001
+	- original version; created by h2xs 1.21 with options
+		-X -n Config::Simple
+
