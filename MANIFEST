@@ -7,6 +7,8 @@ Simple.pm
 t/create.t
 t/import.t
 t/ini.t
+t/is_modified.cfg
+t/is_modified.t
 t/project.ini
 t/read-rv.t
 t/simple.cfg

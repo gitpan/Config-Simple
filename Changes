@@ -1,5 +1,9 @@
  Change log for Config::Simple
-  $Date: 2003/03/11 05:16:50 $
+  $Date: 2003/03/11 07:33:04 $
+
+4.48
+    * 'autosave' mode used to save into the file even if nothing had been
+      modified. Fixed in this release
 
 4.47
     * clear() method introduced
@@ -57,4 +61,4 @@
     * much improved write()
 
 
-$Revision: 3.19 $
+$Revision: 3.20 $

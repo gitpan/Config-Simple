@@ -1,6 +1,6 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.39 2003/03/11 05:16:50 sherzodr Exp $
+# $Id: Simple.pm,v 3.40 2003/03/11 07:33:04 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
@@ -12,7 +12,7 @@ use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 use AutoLoader 'AUTOLOAD';
 
-$VERSION   = '4.47';
+$VERSION   = '4.48';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -45,6 +45,7 @@ sub new {
     _SUB_SYNTAX     => undef,   # holds the sub-syntax (like for simplified ini)
     _ARGS           => {},      # holds all key/values passed to new()
     _OO_INTERFACE   => 1,       # currently not implemented
+    _IS_MODIFIED    => 0,       # to prevent writing file back if they were not modified
   };
   bless ($self, $class);
   $self->_init(@_) or return;
@@ -58,9 +59,8 @@ sub DESTROY {
   my $self = shift;
   
   # if it was an auto save mode, write the changes
-  # back. Currently it doesn't quite care if they
-  # were modified or not.
-  if ( $self->autosave() ) {
+  # back only if the values have been modified.
+  if ( $self->autosave() && $self->_is_modified() ) {
     $self->write();
   }
 }
@@ -92,6 +92,17 @@ sub _init {
     return $self->read( $self->{_ARGS}->{filename} );
   }  
   return 1;
+}
+
+
+
+sub _is_modified {
+  my ($self, $bool) = @_;
+
+  if ( defined $bool ) {
+    $self->{_IS_MODIFIED} = $bool;
+  }
+  return $self->{_IS_MODIFIED};
 }
 
 
@@ -439,9 +450,11 @@ sub set_block {
   while ( my ($k, $v) = each %$values ) {
     $v =~ s/\n/\\n/g;
     $processed_values->{$k} = (ref($v) eq 'ARRAY') ? $v : [$v];
+    $self->_is_modified(1);
   }
 
   $self->{_DATA}->{$block_name} = $processed_values;
+  $self->_is_modified(1);
 }
 
 
@@ -468,12 +481,15 @@ sub set_param {
   if ( $syntax eq 'ini' ) {
     my ($bn, $k) = $key =~ m/^([^\.]+)\.(.*)$/;
     if ( $bn && $k ) {
+      $self->_is_modified(1);
       return $self->{_DATA}->{$bn}->{$k} = $value;
     }
     # most likely the user is assuming default name space then?
     # Let's hope!
+    $self->_is_modified(1);
     return $self->{_DATA}->{$DEFAULTNS}->{$key} = $value;
   }
+  $self->_is_modified(1);
   return $self->{_DATA}->{$key} = $value;
 }
 
@@ -1055,6 +1071,11 @@ undef otherwise:
 Supported arguments are B<filename>, B<syntax>, B<autosave>. If there is a single
 argument, will be treated as the name of the configuration file.
 
+=item autosave([$bool])
+
+- turns 'autosave' mode on if passed true argument. Returns current autosave mode
+if used without arguments. In 'autosave' mode Config::Simple writes all the changes
+back to its file without you having to call write() or save()
 
 =item read()
 
