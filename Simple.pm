@@ -2,7 +2,6 @@ package Config::Simple;
 
 require 5.003;
 
-use warnings;
 use strict;
 use Carp;
 use File::Copy;
@@ -14,7 +13,7 @@ use vars qw($VERSION @ISA @EXPORT $MD5 $errstr);
 
 @ISA = qw(Exporter);
 
-$VERSION = "2.2";
+$VERSION = "2.3";
 
 eval {
     for ( @Fcntl::EXPORT ) {
@@ -446,7 +445,7 @@ in your Perl application:
 
 =head1 NOTE
 
-This documentation refers to version 2.0 of Config::Simple. If you have a version
+This documentation refers to version 2.3 of Config::Simple. If you have a version
 older than this, please update it to the latest release ASAP (before you get burned).
 
 =head1 DESCRIPTION
