@@ -1,6 +1,6 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.53 2004/07/28 21:16:04 sherzodr Exp $
+# Simple.pm,v 3.54 2004/10/17 22:31:38 sherzodr Exp
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
@@ -13,22 +13,21 @@ use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 use AutoLoader 'AUTOLOAD';
 
 
-$VERSION   = '4.56';
+$VERSION   = '4.57';
 $DEFAULTNS = 'default';
 
 sub import {
-  my $class = shift;
-  for ( @_ ) {
-    if ( $_ eq '-lc'      ) { $LC = 1;    next; }
-    if ( $_ eq '-strict'  ) { $USEQQ = 1; next; }
-  }
+    my $class = shift;
+    for ( @_ ) {
+        if ( $_ eq '-lc'      ) { $LC = 1;    next; }
+        if ( $_ eq '-strict'  ) { $USEQQ = 1; next; }
+    }
 }
 
 
 
 # delimiter used by Text::ParseWords::parse_line()
 sub READ_DELIM () { return '\s*,\s*' }
-
 # delimiter used by as_string()
 sub WRITE_DELIM() { return ', '      }
 sub DEBUG      () { 0 }
@@ -139,7 +138,9 @@ sub _get_fh {
   if ( ref($arg) && (ref($arg) eq 'GLOB') ) {
     return ($arg, 0);
   }
-  $mode ||= O_RDWR;
+  unless ( defined $mode ) {
+      $mode = O_RDONLY;
+  }
   unless ( sysopen(FH, $arg, $mode) ) {
     $self->error("couldn't open $arg: $!");
     return undef;
@@ -169,12 +170,16 @@ sub read {
   # call respective parsers
 
   if ( $self->{_SYNTAX} eq 'ini' ) {
-    return $self->{_DATA} = $self->parse_ini_file($file);
+        $self->{_DATA} = $self->parse_ini_file($file);
   } elsif ( $self->{_SYNTAX} eq 'simple' ) {
-    return $self->{_DATA} = $self->parse_cfg_file(\*FH);
+        $self->{_DATA} = $self->parse_cfg_file(\*FH);
   } elsif ( $self->{_SYNTAX} eq 'http' ) {
-    return $self->{_DATA} = $self->parse_http_file(\*FH);
+        $self->{_DATA} = $self->parse_http_file(\*FH);
   }
+
+    if ( $self->{_DATA} ) {
+        return $self->{_DATA};
+    }
 
   die "Something went wrong. No supported configuration file syntax found";
 }
@@ -271,18 +276,11 @@ sub parse_ini_file {
   while ( defined($line=<$fh>) ) {
     # skipping comments and empty lines:
 
-    chomp $line;
-    
-    # Perl Cookbook 8.1
-    if ( $line =~ s/\\\s*$// ) {
-      my $next_line = <$fh>;
-      $next_line =~ s/^\s+//;
-      #die $next_line;
-      $line .= $next_line;
-      redo unless eof($fh);
-    }
     $line =~ /^(\n|\#|;)/  and next;
     $line =~ /\S/          or  next;
+
+    chomp $line;
+    
     $line =~ s/^\s+//g;
     $line =~ s/\s+$//g;
     
@@ -359,7 +357,7 @@ sub parse_cfg_file {
 sub parse_http_file {
   my ($class, $file) = @_;
 
-  my ($fh, $close_fh) = $class->_get_fh($file) or return;    
+  my ($fh, $close_fh) = $class->_get_fh($file, O_RDONLY) or return;    
   unless ( flock($fh, LOCK_SH) ) {
     $errstr = "couldn't get shared lock on file: $!";
     return undef;
@@ -569,13 +567,17 @@ sub write {
 
   $file ||= $self->{_FILE_NAME} or die "Neither '_FILE_NAME' nor \$filename defined";
 
-  unless ( sysopen(FH, $file, O_WRONLY|O_CREAT|O_TRUNC, 0666) ) {
+  unless ( sysopen(FH, $file, O_WRONLY|O_CREAT, 0666) ) {
     $self->error("'$file' couldn't be opened for writing: $!");
     return undef;
   }
   unless ( flock(FH, LOCK_EX) ) {
     $self->error("'$file' couldn't be locked: $!");
     return undef;
+  }
+  unless ( truncate(FH, 0) ) {
+      $self->error("'$file' couldn't be truncated: $!");
+      return undef;
   }
   print FH $self->as_string();
   unless ( CORE::close(FH) ) {
@@ -639,17 +641,17 @@ sub as_string {
 
 # quotes each value before saving into file
 sub quote_values {
-  my $string = shift;
+    my $string = shift;
 
-  if ( ref($string) ) {
-    $string = $_[0];
-  }  
-  if ( $USEQQ && ($string =~ m/\W/) ) {
-    $string =~ s/"/\\"/g;
-    $string =~ s/\n/\\n/g;
-    return sprintf("\"%s\"", $string);
-  }
-  return $string;
+    if ( ref($string) ) {   $string = $_[0] }
+    $string =~ s/\\/\\\\/g;
+
+    if ( $USEQQ && ($string =~ m/\W/) ) {
+        $string =~ s/"/\\"/g;
+        $string =~ s/\n/\\n/g;
+        return sprintf("\"%s\"", $string);
+    }
+    return $string;
 }
 
 

@@ -10,10 +10,10 @@ use Data::Dumper;
 use FindBin '$RealBin';
 use File::Spec;
 BEGIN {
-  plan tests => 8;
+  plan tests => 13;
 }
 
-use Config::Simple;
+use Config::Simple qw(-strict);
 ok(1);
 #########################
 
@@ -26,6 +26,7 @@ my $cfg = Config::Simple->new();
 ok($cfg);
 ok($cfg->read($ini_file));
 
+
 my $vars = $cfg->vars();
 
 ok(ref($vars) eq 'HASH');
@@ -33,6 +34,14 @@ ok(@{$vars->{'Default.Inner_Color'}} == 3);
 ok(@{$vars->{'Default.Outer_Color'}} == 3);
 ok($vars->{'Default.Outer_Color'}->[1] == 0);
 ok($vars->{'Default.Outer_Color'}->[2] == 0.1);
-#die $cfg->dump();
-#die Dumper($vars);
+
+#warn $vars->{'WIN32.My_Music'}, "\n";
+ok($vars->{'WIN32.My_Documents'} eq "C:\\DOCUMENTS AND SETTINGS\\SHERZOD RUZMETOV\\MY DOCUMENTS\\");
+ok($vars->{'WIN32.My_Music'} eq "C:\\DOCUMENTS AND SETTINGS\\SHERZOD RUZMETOV\\MY DOCUMENTS\\MY MUSIC\\");
+ok($vars->{'WIN32.My_Pictures'} eq "C:\\DOCUMENTS AND SETTINGS\\SHERZOD RUZMETOV\\MY DOCUMENTS\\MY PICTURES\\");
+
+$cfg->param('WIN32.My_Money', $vars->{'WIN32.My_Documents'} . "MY MONEY\\");
+
+ok($cfg->param('WIN32.My_Money') eq "C:\\DOCUMENTS AND SETTINGS\\SHERZOD RUZMETOV\\MY DOCUMENTS\\MY MONEY\\");
+ok($cfg->write); 
 

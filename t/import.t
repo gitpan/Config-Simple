@@ -24,11 +24,13 @@ my $ini_file = File::Spec->catfile($RealBin, 'project.ini');
 
 ok(Config::Simple->import_from($ini_file, 'CFG'));
 
-ok($CFG::PROJECT_COUNT == 3);
-ok($CFG::PROJECT_2_NAME eq 'MPFCU');
-ok(ref($CFG::PROJECT_100_NAMES) eq 'ARRAY' );
-ok($CFG::PROJECT_100_NAMES->[0] eq 'First Name');
-
+{
+    no warnings;
+    ok($CFG::PROJECT_COUNT == 3);
+    ok($CFG::PROJECT_2_NAME eq 'MPFCU');
+    ok(ref($CFG::PROJECT_100_NAMES) eq 'ARRAY' );
+    ok($CFG::PROJECT_100_NAMES->[0] eq 'First Name');
+}
 
 
 # testing import_into():

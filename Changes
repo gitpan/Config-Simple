@@ -1,7 +1,11 @@
  Change log for Config::Simple
-  $Date: 2004/07/28 21:16:04 $
+  2004/10/17 22:31:38
 
-4.56 (current)
+4.57 (current)
+	* FIXED [BUG 7793] - http://rt.cpan.org/NoAuth/Bug.html?id=7793
+	* FIXED [BUG 6252] - http://rt.cpan.org/NoAuth/Bug.html?id=6252
+
+4.56 
     * clear() method is no longer autoloaded to avoid collisions with CLEAR()
       on Win32 systems.
 	* FIXED: if value of a key evaluated to false the whole key wasn't being stored
@@ -100,4 +104,4 @@
     * much improved write()
 
 
-$Revision: 3.30 $
+3.31
