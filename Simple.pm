@@ -14,7 +14,7 @@ use vars qw($VERSION @ISA @EXPORT $MD5 $errstr);
 
 @ISA = qw(Exporter);
 
-$VERSION = "2.0";
+$VERSION = "2.1";
 
 eval {
     for ( @Fcntl::EXPORT ) {
@@ -50,6 +50,7 @@ sub new {
             filename    => undef,
             mode        => O_RDONLY|O_CREAT,
             lockfile    => "",
+            c           => 1,
             @_,
         },
         _cfg        => {},
@@ -84,7 +85,7 @@ sub new {
 
 
 
-sub DESTROY {	}
+sub DESTROY {   }
 
 
 
@@ -106,12 +107,16 @@ sub _init {
         $after_dot  and $self->{'.'} .= $_, next;
         /^(;|\n|\#)/    and next;   # deal with \n and comments
         /^\[([^\]]+)\]/ and $title = $1, next;
-        /^([^=]+)=(.+)/ and $self->{_cfg}->{$title}{$1} = $2;
+        /^([^=]+)=(.+)/ and $self->{_cfg}->{$title}{$1} = $2, next;
         /^\./           and $after_dot = 1, next;   # don't read anything after the sole dot (.)
+
+        chomp ($_);
+        my $msg = "Syntax error in line $. of $file: \"$_\"";
+        $self->{_options}{c}    and croak $msg;
 
     }
 
-	close FH;
+    close FH;
     return 1;
 }
 
@@ -172,7 +177,7 @@ sub param {
 
     # @b = $config->param();
     unless ( scalar(@_) ) {
-		return keys %{$self->{_cfg}};
+        return keys %{$self->{_cfg}};
     }
 
     # $config->param('author.f_name');
@@ -261,7 +266,7 @@ sub param_hash {
 
     my %hash = ();
     for my $block ( keys %{$self->{_cfg}} ) {
-		$block =~ m/^\./	and next;
+        $block =~ m/^\./    and next;
         for my $key ( keys %{ $self->{_cfg}{$block} } ) {
             $hash{ $block . '.' . $key } = $self->_get_single_param($block, $key);
         }
@@ -269,10 +274,6 @@ sub param_hash {
 
     return %hash;
 }
-
-
-
-
 
 
 
@@ -314,7 +315,7 @@ sub write {
     print "; ", "-" x 70, "\n\n";
 
     while ( my($block, $values) = each %{ $self->{_cfg} } ) {
-        
+
         print "[$block]\n";
         while ( my ($key, $value) = each %{$values} ) {
             print "$key=$value\n";
@@ -324,7 +325,7 @@ sub write {
 
     if ( defined $self->{'.'} )  {
         print ".\n";
-		print $self->{'.'};
+        print $self->{'.'};
     }
 
     select (STDOUT);
@@ -332,6 +333,46 @@ sub write {
 
 }
 
+
+
+
+sub load {
+    my $self = shift;
+
+    # $config->load($cgi);
+    if ( scalar @_ == 1 ) {
+        unless ( ref($_[0]) ) {
+            $errstr = "load() didn't get expected CGI object";
+            return undef;
+        }
+
+        my $cgi = $_[0];
+        while ( my ($block, $values) = each %{ $self->{_cfg} } ) {
+            for my $key ( keys %{$values} ) {
+                $cgi->param(-name=>$block . '.' . $key, -value=>$values->{$key});
+            }
+        }
+        return $cgi;
+    }
+
+    # $config->load($cgi, $block);
+    if ( scalar @_== 2 ) {
+
+        unless ( ref ($_[0]) ) {
+            $errstr =  "load() didn't get expcted CGI object as the first argument";
+            return undef;
+        }
+
+        my $cgi = $_[0];
+        while ( my ($key, $value) = each %{$self->{_cfg}{$_[1]} } ) {
+            $cgi->param(-name=>$_[1] . '.' . $key, -value=>$value);
+        }
+        return $cgi;
+    }
+
+    $errstr = "Didn't understand the usage. Please refer to online docs of Config::Simple";
+    return undef;
+}
 
 
 
@@ -347,9 +388,9 @@ sub clone {
 
 
 sub error {
-	my $self = shift;
+    my $self = shift;
 
-	return $errstr;
+    return $errstr;
 
 }
 
@@ -393,6 +434,12 @@ in your Perl application:
 
     print "MySQL host: ", $config->param("mysql.host"), "\n";
     print "MySQL login: ", $config->param("mysql.login"), "\n";
+
+    # to get just [mysql] block:
+    my $mysql = $cfg->param(-block=>"mysql");
+
+    print "MySQL host: ", $mysql->{host}, "\n";
+    print "MySQL login: ", $mysql->{login}, "\n";
 
 
 =head1 NOTE
@@ -480,16 +527,21 @@ fcntl constants:
 
 =over 2
 
-=item new( filename=>$ [, mode=>O_*] [, lockfile=>$] )
+=item new( filename=>$scalar [, mode=>O_*] [, lockfile=>$scalar] [,c=>$boolean] )
 
 Constructor method. Requires filename to be present and picks up defaults for the rest
 if omitted. mode is used while opening the file, lockfile while updating the file.
 
 It returns Config::Simple object if successfull. If it fails, sets the error message to
-$Config::Simple::errstr variable, and returns undef. 
+$Config::Simple::errstr variable, and returns undef.
 
 mode can accept any of the above described L<fcntl|Fcntl> constants. Default is C<O_RDONLY E<verbar> O_CREAT>.
 Default lockfile is the name of the configuration file with ".lock" extension
+
+If you set the value of C<c> to 1 (true), then it checks the configuration file for proper
+syntax, and throws an exception if it finds a syntax error. Error message looks
+something like C<Syntax error in line 2 of sample.cfg: "this is just wrong" at t/default.t line 11>.
+If you set it to 0 (false), those lines will just be ignored.
 
 =item param([args])
 
@@ -609,7 +661,7 @@ Hopefully none.
 
 Please send them to my email if you detect any with a sample code
 that triggers that bug. Even if you don't have any, just let me konw that you are using it.
-It just makes me feel great ;-)
+It just makes me feel good ;-)
 
 =head1 COPYRIGHT
 
