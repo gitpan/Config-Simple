@@ -1,5 +1,13 @@
  Change log for Config::Simple
-  $Date: 2003/03/09 01:43:42 $
+  $Date: 2003/03/11 05:16:50 $
+
+4.47
+    * clear() method introduced
+    * if 'authosave' and 'filename' options were passed to new(),
+      'autosave' was being ignored.
+    * delete() and DELETE() methods shouldn't be autoloaded with 
+      AutoLoad. Creates problems for systems with case sensitive file names.
+      Only DELETE() is autoloaded.
 
 4.46
     * tie() interface, convenience methods as well as deprecated
@@ -49,4 +57,4 @@
     * much improved write()
 
 
-$Revision: 3.15 $
+$Revision: 3.19 $

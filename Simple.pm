@@ -1,6 +1,6 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.35 2003/03/09 01:43:42 sherzodr Exp $
+# $Id: Simple.pm,v 3.39 2003/03/11 05:16:50 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
@@ -12,7 +12,7 @@ use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 use AutoLoader 'AUTOLOAD';
 
-$VERSION   = '4.46';
+$VERSION   = '4.47';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -37,14 +37,14 @@ sub new {
   $class = ref($class) || $class;
 
   my $self = {
-    _FILE_HANDLE    => undef,
-    _FILE_NAME      => undef,
-    _STACK          => [],
-    _DATA           => {},
-    _SYNTAX         => undef,
-    _SUB_SYNTAX     => undef,
-    _ARGS           => {},
-    _OO_INTERFACE   => 1,
+    _FILE_HANDLE    => undef,   # holds a reference to an opened cfg file
+    _FILE_NAME      => undef,   # holds the name of the read configuration file
+    _STACK          => [],      # currently not implemented
+    _DATA           => {},      # actual key/value pairs are stored in _DATA
+    _SYNTAX         => undef,   # holds the syntax of the read cfg file
+    _SUB_SYNTAX     => undef,   # holds the sub-syntax (like for simplified ini)
+    _ARGS           => {},      # holds all key/values passed to new()
+    _OO_INTERFACE   => 1,       # currently not implemented
   };
   bless ($self, $class);
   $self->_init(@_) or return;
@@ -79,10 +79,6 @@ sub _init {
   } else {
     $self->{_ARGS} = { @_ };
   }
-  # If filename was passed, call read()
-  if ( exists ($self->{_ARGS}->{filename}) ) {
-    return $self->read( $self->{_ARGS}->{filename} );
-  }
   # if syntax was given, call syntax()
   if ( exists $self->{_ARGS}->{syntax} ) {
     $self->syntax($self->{_ARGS}->{syntax});
@@ -91,6 +87,10 @@ sub _init {
   if ( exists $self->{_ARGS}->{autosave} ) {
     $self->autosave($self->{_ARGS}->{autosave});
   }
+  # If filename was passed, call read()
+  if ( exists ($self->{_ARGS}->{filename}) ) {
+    return $self->read( $self->{_ARGS}->{filename} );
+  }  
   return 1;
 }
 
@@ -574,6 +574,23 @@ sub quote_values {
 
 
 
+# deletes a variable
+sub delete {
+  my ($self, $key) = @_;
+
+  my $syntax = $self->syntax() or die "No 'syntax' is defined";
+  if ( $syntax eq 'ini' ) {
+    my ($bn, $k) = $key =~ m/([^\.]+)\.(.*)/;
+    if ( defined($bn) && defined($k) ) {
+      delete $self->{_DATA}->{$bn}->{$k};
+    } else {
+      delete $self->{_DATA}->{$DEFAULTNS}->{$key};
+    }
+    return 1;
+  }
+  delete $self->{_DATA}->{$key};
+}
+
 
 
 
@@ -628,26 +645,28 @@ Config::Simple - simple configuration file class
 =head1 ABSTRACT
 
 Reading and writing configuration files is one of the most frequent
-aspects of any software design. Config::Simple is the library to help
+tasks of any software design. Config::Simple is the library that helps
 you with it.
 
 Config::Simple is a class representing configuration file object. 
-It supports several configuration file syntax and tries
-to identify the file syntax to parse them accordingly. Library supports
-parsing, updating and creating configuration files. 
+It supports several configuration file syntax and tries to identify the 
+file syntax automaticly. Library supports parsing, updating and creating 
+configuration files.
 
 =head1 ABOUT CONFIGURATION FILES
 
 Keeping configurable variables in your program source code is ugly, really.
 And for people without much of a programming experience, configuring
 your programs is like performing black magic. Besides, if you need to
-access these values from within multiple files, or want your programs
-to be able to update configuration files, you just have to store them in 
+access these values from within multiple files, want your programs
+to be able to update configuration files or want to provide a friendlier
+user interface for your configuration files, you just have to store them in 
 an external file. That's where Config::Simple comes into play, making it
 very easy to read and write configuration files.
 
 If you have never used configuration files before, here is a brief
-overview of various syntax to choose from.
+overview of various syntax to choose from. Otherwise you can jump to
+L</PROGRAMMING STYLE>.
 
 =head2 SIMPLE CONFIGURATION FILE
 
@@ -905,7 +924,7 @@ When you're done, call write() method with the name of the configuration file:
   $cfg->param("site.title", 'sherzodR "The Geek"');
   $cfg->write("new.cfg");
 
-This creates the a file "new.cfg" with the following content:
+This creates a file "new.cfg" with the following content:
 
   ; Config::Simple 4.43
   ; Sat Mar  8 00:32:49 2003
@@ -1054,6 +1073,11 @@ returns all the available names from the configuration file.
 - deletes a variable from a configuration file. $name has the same meaning and syntax
 as it does in param($name)
 
+=item clear() 
+
+- clears all the data from the object. Calling save() or turning autosave() on results
+in an empty configuration file as well.
+
 =item vars()
 
 - depending on the context used, returns all the values available in the configuration
@@ -1130,24 +1154,19 @@ manual. Default indent size is 2.
 
 =item *
 
-Support for lines with continuation character, '\'. Currently it's support
-is restricted.
+Support for lines with continuation character, '\'. Currently its support
+is restricted and quite possibly buggy.
 
 =item *
 
 Retaining comments while writing the configuration files back and/or methods for
 manipulating comments. Everyone loves comments!
 
-=item *
-
-Support for  Apache-like style configuration file. For now, if you want this functionality,
-checkout L<Config::General> instead.
-
 =back
 
 =head1 BUGS
 
-Submit bugs and possibly patches to Sherzod B. Ruzmetov E<lt>sherzodr@cpan.orgE<gt>. If you think
+Submit bugs and possibly patches to Sherzod B. Ruzmetov E<lt>sherzodr@cpan.orgE<gt>.
 
 =head1 CREDITS
 
@@ -1189,7 +1208,13 @@ L<Config::General>, L<Config::Simple>, L<Config::Tiny>
 
 =cut
 
+# Following methods are loaded on demand.
 
+# clears the '_DATA' entirely.
+sub clear {
+  my $self = shift;
+  map { $self->delete($_) } $self->param;
+}
 
 
 # returns all the keys as a hash or hashref
@@ -1297,22 +1322,6 @@ sub verbose {
 }
 
 
-
-sub delete {
-  my ($self, $key) = @_;
-
-  my $syntax = $self->syntax() or die "No 'syntax' is defined";
-  if ( $syntax eq 'ini' ) {
-    my ($bn, $k) = $key =~ m/([^\.]+)\.(.*)/;
-    if ( defined($bn) && defined($k) ) {
-      delete $self->{_DATA}->{$bn}->{$k};
-    } else {
-      delete $self->{_DATA}->{$DEFAULTNS}->{$key};
-    }
-    return 1;
-  }
-  delete $self->{_DATA}->{$key};
-}
 
 
 
