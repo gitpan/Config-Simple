@@ -1,6 +1,9 @@
  Change log for Config::Simple
-  $Date: 2003/04/17 21:03:15 $
+  $Date: 2003/04/19 21:20:56 $
 
+4.53
+    * write() and dump() methods open files with 0666 permission
+      as opposed to 0600.
 4.52
     * '-strict' and '-lc' switches, if used together were buggy
     * if either -name or -value pased to param() was 0 (zero),
@@ -80,4 +83,4 @@
     * much improved write()
 
 
-$Revision: 3.24 $
+$Revision: 3.25 $

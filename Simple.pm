@@ -1,6 +1,6 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.46 2003/04/17 21:03:15 sherzodr Exp $
+# $Id: Simple.pm,v 3.48 2003/04/19 21:20:56 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
@@ -12,7 +12,7 @@ use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 use AutoLoader 'AUTOLOAD';
 
-$VERSION   = '4.52';
+$VERSION   = '4.53';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -508,7 +508,7 @@ sub write {
 
   $file ||= $self->{_FILE_NAME} or die "Neither '_FILE_NAME' nor \$filename defined";
 
-  unless ( sysopen(FH, $file, O_WRONLY|O_CREAT|O_TRUNC, 0600) ) {
+  unless ( sysopen(FH, $file, O_WRONLY|O_CREAT|O_TRUNC, 0666) ) {
     $self->error("'$file' couldn't be opened for writing: $!");
     return undef;
   }
@@ -631,7 +631,7 @@ Config::Simple - simple configuration file class
   # --- Simple usage. Loads the config. file into a hash:
   Config::Simple->import_from('app.ini', \%Config);
 
-  
+
   # --- OO interface:
   $cfg = new Config::Simple('app.ini');
 
@@ -649,7 +649,7 @@ Config::Simple - simple configuration file class
 
   # adding a new block to an ini-file:
   $cfg->param(-block=>'last-access', -values=>{'time'=>time()});
-  
+
   # accessing a block of an ini-file;
   $mysql = $cfg->param(-block=>'mysql');
 
@@ -659,7 +659,7 @@ Config::Simple - simple configuration file class
 
   # --- tie() interface
   tie %Config, "Config::Simple", 'app.ini';
-  
+
 
 =head1 ABSTRACT
 
@@ -765,9 +765,9 @@ Most of the programs simply need to be able to read settings from a configuratio
 file and assign them to a hash. If that's all you need, you can simply use
 its import_from() - class method with the name of the configuration file
 and a reference to an existing (possibly empty) hash:
-  
+
   Config::Simple->import_from('myconf.cfg', \%Config);
-  
+
 Now your hash %Config holds all the configuration file's key/value pairs.
 Keys of a hash are variable names inside your configuration file, and values
 are their respective values. If "myconf.cfg" was a traditional ini-file, 
@@ -1216,6 +1216,10 @@ default name space suggestion and patch
 
 import_names() and import_from() idea.
 
+=item Vitaly Kushneriuk
+
+for bug fixes and suggestions
+
 =back
 
 =head1 COPYRIGHT
@@ -1336,7 +1340,7 @@ sub dump {
   my $d = new Data::Dumper([$self], [ref $self]);
   $d->Indent($indent||2);
   if ( defined $file ) {
-    sysopen(FH, $file, O_WRONLY|O_CREAT|O_TRUNC, 0600) or die $!;
+    sysopen(FH, $file, O_WRONLY|O_CREAT|O_TRUNC, 0666) or die $!;
     print FH $d->Dump();
     CORE::close(FH) or die $!;
   }
