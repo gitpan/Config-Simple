@@ -1,6 +1,6 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.40 2003/03/11 07:33:04 sherzodr Exp $
+# $Id: Simple.pm,v 3.42 2003/04/15 20:33:28 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
@@ -12,7 +12,7 @@ use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 use AutoLoader 'AUTOLOAD';
 
-$VERSION   = '4.48';
+$VERSION   = '4.49';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -427,6 +427,9 @@ sub get_block {
 
   unless ( $self->syntax() eq 'ini' ) {
     croak "get_block() is supported only in 'ini' files";
+  }
+  unless ( defined $block_name ) {
+    return keys %{$self->{_DATA}};
   }
   my $rv = {};
   while ( my ($k, $v) = each %{$self->{_DATA}->{$block_name}} ) {
@@ -1344,7 +1347,17 @@ sub verbose {
 
 
 
+sub block {
+  my $self = shift;
 
+  
+
+
+
+
+
+
+}
 
 
 #------------------
@@ -1452,5 +1465,8 @@ sub errstr {
 }
 
 
-
+sub block {
+  my $self = shift;
+  return $self->get_block(@_);
+}
 

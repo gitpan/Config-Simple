@@ -1,5 +1,12 @@
  Change log for Config::Simple
-  $Date: 2003/03/11 07:33:04 $
+  $Date: 2003/04/15 20:33:28 $
+
+4.49
+    * get_block() method now returns a list of all the available
+      blocks from an ini file.
+    * block() method was missing in previous releases. Added as
+      an alias to get_block()
+    
 
 4.48
     * 'autosave' mode used to save into the file even if nothing had been
@@ -61,4 +68,4 @@
     * much improved write()
 
 
-$Revision: 3.20 $
+$Revision: 3.21 $

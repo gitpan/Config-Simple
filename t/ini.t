@@ -6,10 +6,11 @@
 
 use strict;
 use Test;
+use Data::Dumper;
 use FindBin '$RealBin';
 use File::Spec;
 BEGIN {
-  plan tests => 16;
+  plan tests => 17;
 }
 
 require Config::Simple;
@@ -26,6 +27,7 @@ ok($cfg);
 ok($cfg->read($ini_file));
 ok($cfg->param('Project\2.Name') eq 'MPFCU');
 ok($cfg->param('Project\1.Count') == 9);
+ok($cfg->block() == 5);
 my $vars = $cfg->vars();
 ok($vars->{'Project\2.Name'} eq 'MPFCU');
 ok($cfg->param(-name=>'Project\100.Name', -value =>'Config::Simple'));
