@@ -190,9 +190,12 @@ PROGRAMMING STYLE
     $cfg->param('debug.mode');
 
     "import_names()" by default imports the values to its caller's name
-    space, which may be all you need. Optionally, you can specify where to
-    import by passing the name of the name space as the first argument. It
-    may be useful if you don't want any name collisions:
+    space. If you're running under strict mode, you will also have to
+    declare all those variables in your program with either vars.pm or
+    our(). Optionally, you can specify where to import the values by passing
+    the name of the name space as the first argument. Thus you do not have
+    to pre declare the variables in your code anymore. It also prevents
+    potential name collisions:
 
       Config::Simple->new('app.cfg')->import_names('CFG');
       print STDERR "Debugging mode is on" if $CFG::DEBUG_MODE;

@@ -5,9 +5,15 @@
 
 # change 'tests => 1' to 'tests => last_test_to_print';
 
-use Test::More 'no_plan';
+use strict;
+use Test;
 use File::Spec;
-use Config::Simple '-strict';
+BEGIN {
+  plan tests => 4;
+}
+require Config::Simple;
+ok(1);
+Config::Simple->import('-strict');
 
 #########################
 
@@ -17,6 +23,7 @@ use Config::Simple '-strict';
 my $ini_file = File::Spec->catfile('t', 'new.cfg');
 
 my $cfg = new Config::Simple(syntax=>'ini');
+ok($cfg);
 
 
 $cfg->param("mysql.dsn", "DBI:mysql:db;host=handalak.com");
@@ -24,7 +31,6 @@ $cfg->param("mysql.user", "sherzodr");
 $cfg->param("mysql.pass", 'marley01');
 $cfg->param("site.title", 'sherzodR "The Geek"');
 
-$cfg->write($ini_file);
-
+ok($cfg->write($ini_file));
 ok( -e $ini_file );
 

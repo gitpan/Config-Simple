@@ -1,5 +1,9 @@
  Change log for Config::Simple
-  Sunday, February 23, 2003
+  $Date: 2003/02/24 06:06:53 $
+
+4.41
+    * Test scripts fixed
+    * import_names() specific section of the manual updated
 
 4.4
     * import_names() method to import values as global variables
@@ -21,3 +25,5 @@
     * -lc switch to disable case sensitive parsing of block names and keys
     * much improved write()
 
+
+$Revision: 3.10 $

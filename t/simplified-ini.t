@@ -1,3 +1,4 @@
+#!/usr/bin/perl -w
 # Before `make install' is performed this script should be runnable with
 # `make test'. After `make install' it should work as `perl 1.t'
 
@@ -5,9 +6,15 @@
 
 # change 'tests => 1' to 'tests => last_test_to_print';
 
-use Test::More 'no_plan';
+use strict;
+use Test;
 use File::Spec;
-BEGIN { use_ok('Config::Simple') };
+BEGIN {
+  plan tests => 6;
+}
+
+require Config::Simple;
+ok(1);
 
 #########################
 
@@ -17,16 +24,9 @@ BEGIN { use_ok('Config::Simple') };
 my $ini_file = File::Spec->catfile('t', 'simplified.ini');
 
 my $cfg = new Config::Simple();
-$cfg->read($ini_file);
-ok($cfg,      "new($ini_file)");
-
+ok($cfg);
+ok($cfg->read($ini_file));
 ok($cfg->param("Name") eq "MPFCU");
-
 ok($cfg->param('Library', 'Config::Simple'));
-
-#$cfg->dump('simplified.dump');
-
-#die $cfg->write_string();
-
-$cfg->write();
+ok($cfg->write);
 

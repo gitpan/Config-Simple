@@ -1,6 +1,6 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.25 2003/02/23 21:15:22 sherzodr Exp $
+# $Id: Simple.pm,v 3.27 2003/02/24 06:08:40 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
@@ -11,7 +11,7 @@ use Fcntl (':DEFAULT', ':flock');
 use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 
-$VERSION   = '4.4';
+$VERSION   = '4.41';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -85,6 +85,10 @@ sub _init {
   # if syntax was given, call syntax()
   if ( exists $self->{_ARGS}->{syntax} ) {
     $self->syntax($self->{_ARGS}->{syntax});
+  }
+  # if autosave was set, call autosave
+  if ( exists $self->{_ARGS}->{autosave} ) {
+    $self->autosave($self->{_ARGS}->{autosave});
   }
   return 1;
 }
@@ -944,9 +948,12 @@ substituted with underscore '_'. This can be achieved with the help of C<import_
 In the above example, if there was a variable 'mode' under '[debug]' block,
 it will be now accessible via $DEBUG_MODE, as opposed to $cfg->param('debug.mode');
 
-C<import_names()> by default imports the values to its caller's name space, which may be
-all you need. Optionally, you can specify where to import by passing the name of the name space
-as the first argument. It may be useful if you don't want any name collisions:
+C<import_names()> by default imports the values to its caller's name space. If you're
+running under strict mode, you will also have to declare all those variables in your
+program with either vars.pm or our(). Optionally, you can specify where to import 
+the values by passing the name of the name space as the first argument. Thus you 
+do not have to pre declare the variables in your code anymore. It also prevents
+potential name collisions:
 
   Config::Simple->new('app.cfg')->import_names('CFG');
   print STDERR "Debugging mode is on" if $CFG::DEBUG_MODE;

@@ -1,3 +1,4 @@
+#!/usr/bin/perl -w
 # Before `make install' is performed this script should be runnable with
 # `make test'. After `make install' it should work as `perl 1.t'
 
@@ -5,9 +6,15 @@
 
 # change 'tests => 1' to 'tests => last_test_to_print';
 
-use Test::More 'no_plan';
+use strict;
+use Test;
 use File::Spec;
-use Config::Simple '-strict';
+BEGIN {
+  plan tests => 5;
+}
+
+require Config::Simple;
+Config::Simple->import('-strict');
 ok(1);
 
 #########################
@@ -17,7 +24,7 @@ ok(1);
 
 my $file = File::Spec->catfile('t', 'project.ini');
 
-ok(tie %vars, "Config::Simple", $file);
+ok(tie my %vars, "Config::Simple", $file);
 
 ok($vars{'Project\2.Name'} eq 'MPFCU');
 ok($vars{'Project\1.Count'} == 9);
