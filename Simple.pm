@@ -14,7 +14,7 @@ use vars qw($VERSION @ISA @EXPORT $MD5 $errstr);
 
 @ISA = qw(Exporter);
 
-$VERSION = "2.1";
+$VERSION = "2.2";
 
 eval {
     for ( @Fcntl::EXPORT ) {
@@ -61,6 +61,8 @@ sub new {
     unless ( $self->{_options}{lockfile} ) {
         $self->{_options}{lockfile} = $self->{_options}{filename} . ".lock";
     }
+
+	$self->{_options}{filename} ||=$self->{_options}{_filename};
 
 
     # creating a digest of the file...
