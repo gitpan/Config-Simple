@@ -1,285 +1,390 @@
 NAME
-    Config::Simple - Simple Configuration File class
+    Config::Simple - simple configuration file class
 
 SYNOPSIS
-        # In your configuratin file (some.cfg)
-        [mysql]
-        user=sherzodr
-        password=secret
-        host=localhost
-        database=test
+      use Config::Simple;
 
-        # In your program
+      # OO interface:
+      $cfg = new Config::Simple('app.cfg');
+      $user = $cfg->param("User");    # read the value  
+      $cfg->param(User=>'sherzodr');  # update  
+      my %Config = $cfg->vars();      # load everything into %Config
+      $cfg->write();                  # saves the changes to file
+    
+      # tie interface:
+      tie my %Config, "Config::Simple", "app.cgi";    
+      $user = $Config{'User'};  
+      $Config{'User'} = 'sherzodr';  
+      tied(%Config)->write();
 
-        use Config::Simple;
+ABSTRACT
+    Reading and writing configuration files is one of the most frequent
+    aspects of any software design. Config::Simple is the library to help
+    you with it.
 
-        my $cfg = new Config::Simple("some.cfg");
+    Config::Simple is a class representing configuration file object. It
+    supports several configuration file syntax and tries to identify the
+    file syntax to parse them accordingly. Library supports parsing,
+    updating and creating configuration files.
 
-        # reading
-        my $user = $cfg->param('mysql.user');
-        my $password = $cfg->param('mysql.password');
+ABOUT CONFIGURATION FILES
+    Keeping configurable variables in your program source code is ugly,
+    really. And for people without much of a programming experience,
+    configuring your programs is like performing black magic. Besides, if
+    you need to access these values from within multiple files, or want your
+    programs to be able to update configuration files, you just have to
+    store them in an external file. That's where Config::Simple comes into
+    play, making it very easy to read and write configuration files.
 
-        # updating
-        $cfg->param('mysql.user', foo);
+    If you have never used configuration files before, here is a brief
+    overview of various syntax to choose from.
 
-        # saving the changes back into the file
-        $cfg->write();
+  SIMPLE CONFIGURATION FILE
 
-        # tricks are endless
+    Simple syntax is what you need for most of your projects. These are, as
+    the name asserts, the simplest. File consists of key/value pairs,
+    delimited by nothing but white space. Keys (variables) should be
+    strictly alpha-numeric with possible dashes (-). Values can hold any
+    arbitrary text. Here is an example of such a configuration file:
 
-DESCRIPTION
-    Config::Simple is a Perl class to manipulate simple, windows-ini-styled
-    configuration files. Reading and writing external configurable data is
-    the integral part of any software design, and Config::Simple is designed
-    to help you with it.
+      Alias     /exec
+      TempFile  /usr/tmp
 
-REVISION
-    This manual refers to $Revision: 3.4 $
+    Comments start with a pound ('#') sign and cannot share the same line
+    with other configuration data.
 
-CONFIGURATION FILE SYNTAX
-    Syntax of the configuration file is similar to windows .ini files, where
-    configuration variables and their values are seperated with '=' sign,
-    each set belongind to a specific namespace (block):
+  HTTP-LIKE SYNTAX
 
-            [block]
-            var1=value1
-            var2=value2
+    This format of separating key/value pairs is used by HTTP messages. Each
+    key/value is separated by semi-colon (:). Keys are alphanumeric strings
+    with possible '-'. Values can be any arbitrary text:
 
-    If the block is missing, or any of the key=value pairs are encountered
-    without prior block declaration, they will be assigned to a virtual
-    block. Name of the virtual block is controlled with
-    $Config::Simple::DEFAULTNS variable:
+    Example:
 
-        use Config::Simple;
-        $Config::Simple::DEFAULTNS = "root";
-        $cfg = new Config::Simple("some.cfg");
+      Alias: /exec
+      TempFile: /usr/tmp
 
-    If you do not explicitly assign a namespace, "default" is implied.
+    It is OK to have spaces around ':'. Comments start with '#' and cannot
+    share the same line with other configuration data.
 
-    By default, Config::Simple treats everything after the '=' to the end of
-    the line as configuration value (spaces trimmed). Unfortunately, other
-    configuration file parsing utilities do not quite aggree with the idea,
-    and assert if the value contains non-alphanumerics, they should be
-    enclosed in double quotes ("). Config::Simple supports this syntax as
-    well. If you intend to use this syntax, you should enable "-strict"
-    switch like so:
+  INI-FILE
 
-        use Config::Simple qw/-strict/;
+    These configuration files are more native to Win32 systems. Data is
+    organized in blocks. Each key/value pair is delimited with an equal (=)
+    sign. Blocks are declared on their own lines enclosed in '[' and ']':
 
-    Now Config::Simple expects to see any values that contain
-    non-alphanumeric characters in double quotes. Double quotes to be used
-    inside the value should be escaped with \ (backslash):
+      [BLOCK1]
+      KEY1=VALUE1
+      KEY2=VALUE2
 
-        [default]
-        nick = sherzodR
-        name = "Sherzod Ruzmetov"
-        url  = "http://author.ultracgis.com"
-        email= "sherzodr@cpan.org"
-        quoted = "My favorite quote is \"Learn as if you were to live forever\""
-        age  = 22
+      [BLOCK2]
+      KEY1=VALUE1
+      KEY2=VALUE2
 
-    Enabling "-strict" switch is also useful to keep trailing and leading
-    spaces in configuration values:
+    Your Winamp 2.x play list is an example of such a configuration file.
 
-        [default]
-        signature = "            Foo Bar                   "
+    This is the perfect choice if you need to organize your configuration
+    file into categories:
 
-    Lines starting with '#' or ';' to the end of the line are considered
-    comments, thus ignored while parsing. Line, containing a single dot is
-    the logical end of the configuration file (doesn't necessaryily have to
-    be the physical end though ). So everything after that line is also
-    ignored.
+      [site]
+      url="http://www.handalak.com"
+      title="Web site of a \"Geek\""
+      author=sherzodr
 
-    Note, when you ask Config::Simple to save the changes back, all the
-    comments will be discarded, but everything after that final dot is
-    stored back as it was.
+      [mysql]  
+      dsn="dbi:mysql:db_name;host=handalak.com"
+      user=sherzodr
+      password=marley01
 
-    I admit, keeping the comments would be quite useful too. May be in
-    subsequent releases.
+  SIMPLIFIED INI-FILE
 
-CONSTRUCTOR
-    "new()" - constructor, initializes and returns Config::Simple object.
-    Following options are available:
+    These files are pretty much similar to traditional ini-files, except
+    they don't have any block declarations. This style is handy if you do
+    not want any categorization in your configuration file, but still want
+    to use '=' delimited key/value pairs. While working with such files,
+    Config::Simple assigns them to a default block, called 'default' by
+    default :-).
 
-    *   "filename" - filename to read into memory. If this option is
-        defined, Config::Simple also calls read() for you. If there's only
-        one argument passed to the constructor, it will be treated as the
-        filename as well.
+      url = "http://www.handalak.com"
 
-    *   "autosave" - boolean value indicating if in-memory modifications be
-        saved back to configuration file before object is destroyed. Default
-        is 0, which means "no". (See the autosave() entry elsewhere in this
-        document)
+    Comments can begin with either pound ('#') or semi-colon (';'). Each
+    comment should reside on its own line
 
-    *   "decoder" - reference to a function (coderef), is used by read() to
-        decode the values. If this option is missing, default decoder will
-        be used, which simply decodes new line characters (\n) back to
-        newlines (opposite of default encoder). See the decoder() entry
-        elsewhere in this document.
+PROGRAMMING STYLE
+  READING THE CONFIGURATION FILE
 
-    *   "encoder" - reference to a function (coderef). Is used by write() to
-        encode special characters/sequences before saving them in the
-        configuration file. If this option is missing, default encoder will
-        be used, which encodes newlines to avoid corrupted configuration
-        files. See the encoder() entry elsewhere in this document.
+    To read the existing configuration file, simply pass its name to the
+    constructor new() while initializing the object:
 
-    All the arguments to the constructor can also be set with their
-    respective accessor methods. However, there's an important point to keep
-    in mind. If you define filename as an argument while calling the
-    constructor and at the same time want to use your custom decoder, you
-    should specify the decoder together with the filename. Otherwise, when
-    constructor calls read(), it will use default decoder(). Another option
-    is not to mention filename to constructor, but do so to read().
+      $cfg = new Config::Simple('app.cfg');
 
-METHODS
-    Following methods are available for a Config::Simple object
+    The above line reads and parses the configuration file accordingly. It
+    tries to guess which syntax is used by parsing the file to
+    guess_syntax() method. Alternatively, you can create an empty object,
+    and only then read the configuration file in:
 
-    *   read() - reads and parses the configuration file into Config::Simple
-        object. Accepts one argument, which is treated as a filename to
-        read. If "filename" option to the constructor was defined, there's
-        no point calling read(), since new() will call it for you. Example:
+      $cfg = new Config::Simple();
+      $cfg->read('app.cfg');
 
-            $cfg = new Config::Simple();
-            $cfg->read("some.cfg");
+    As in the first example, read() also calls guess_syntax() method on the
+    file.
 
-    *   hashref() - returns the configuration file as a reference to a hash.
-        Keys consist of configuration section and section key separated by a
-        dot (.), and value holding the value for that key. Example:
+    If, for any reason, it fails to guess the syntax correctly (which is
+    less likely), you can try to debug by using its guess_syntax() method.
+    It expects file handle for a configuration file and returns the name of
+    a syntax. Return value is one of "ini", "simple" or "http".
 
-            # some.cfg
-            [section]
-            key1=value1
-            key2=value2
+      $cfg = new Config::Simple();
 
-        Hashref will return the following hash:
+      open(FH, "app.cfg");
+      printf("This file uses '%s' syntax\n", $cfg->guess_syntax(\*FH));
 
-            $ref = {
-                'section.key1' => value1,
-                'section.key2' => value2,
-            }
+  ACCESSING VALUES
 
-    *   param_hash() - for backward compatibility. Returns similar data as
-        hashref() does (see the hashref() entry elsewhere in this document),
-        but returns de referenced hash.
+    After you read the configuration file in successfully, you can use
+    param() method to access the configuration values. For example:
 
-    *   param() - used for accessing and modifying configuration values. Act
-        differently depending on the arguments passed.
+      $user = $cfg->param("User");
 
-        param()
-            If used with no arguments, returns all the keys available in the
-            configuration file. Once again, keys are sections and section
-            variables delimited with a dot.
+    will return the value of "User" from either simple configuration file,
+    or http-styled configuration as well as simplified ini-files. To access
+    the value from a traditional ini-file, consider the following syntax:
 
-        param($key)
-            If used with a single argument, returns the respective value for
-            that key. Argument is expected to be in the form of
-            "sectionName.variableName".
+      $user = $cfg->param("mysql.user");
 
-        param(-name=>$key)
-            The same as the previous syntax.
+    The above returns the value of "user" from within "[mysql]" block.
+    Notice the use of dot "." to delimit block and key names.
 
-        param($key, $value)
-            Used to modify $key with $value. $key is expected to be in
-            "sectionName.variableName" format.
+    Config::Simple also supports vars() method, which, depending on the
+    context used, returns all the values either as hashref or hash:
 
-        param(-name=>$key, -value=>$value);
-            The same as the previous syntax.
+      my %Config = $cfg->vars();
+      print "Username: $Config{User}";
 
-        param(-block=>$blockname)
-            Returns a single block/section from the configuration file in
-            form of hashref (reference to a hash). For example, assume we
-            had the following block in our "some.cfg"
+      # If it was a traditional ini-file:
+      print "Username: $Config{'mysql.user'}";
 
-                [mysql]
-                user=sherzodr
-                password=secret
-                host=localhost
-                database=test
+    If you call vars() in scalar context, you will end up with a reference
+    to a hash:
 
-            We can access the above block like so:
+      my $Config = $cfg->vars();
+      print "Username: $Config->{User}";
 
-                my $mysql = $cfg->param(-block=>'mysql');
-                my $user = $mysql->{user};
-                my $host = $mysql->{host};
+  UPDATING THE VALUES
 
-        param(-block=>$blockname, -values=>{key1 => value1,...})
-            Used to create a new block or redefine the existing one.
+    Configuration values, once read into Config::Simple, can be updated from
+    within your program by using the same param() method used for accessing
+    them. For example:
 
-    block()
-        Returns the list of all the avialable blocks in the configuration
-        file. If used with an argument, returns the content of that
-        particular block in the form of hashref:
+      $cfg->param("User", "sherzodR");
 
-            my @blocks = $cfg->block();
+    The above line changes the value of "User" to "sherzodR". Similar syntax
+    is applicable for ini-files as well:
 
-    *   write() - saves the modifications to the configuration file.
-        Config::Simple will call write() for you automatically if 'autosave'
-        was set to true (see the new() entry elsewhere in this document).
-        Otherwise, write() is there for you if need. Argument, if exists,
-        will be treated a name of a file current data should be written in.
-        It's useful to copy modified configuration file to a different
-        location, or to save the backup copy of a current configuration file
-        before making any changes to it:
+      $cfg->param("mysql.user", "sherzodR");
 
-            $cfg = new Config::Simple(filename=>'some.cfg', autosave=>1);
+    If the key you're trying to update does not exist, it will be created.
+    For example, to add a new "[session]" block to your ini-file, assuming
+    this block doesn't already exist:
 
-            $cfg->write('some.cfg.bak');        # creating backup copy
-                                                # before updating the contents
+      $cfg->param("session.life", "+1M");
 
-    *   write_string() - creates and returns the content of the
-        configuration file as a string, instead of writing it into a file.
-        The string returned by write_string() is guaranteed to be the same
-        as what is written into a file.
+    You can also delete values calling delete() method with the name of the
+    variable:
 
-    *   encoder() - sets a new encoder to be used in the form of coderef.
-        This encoder will be used by write() before writing the values back
-        to a file. Alternatively, you can define the encoder as an argument
-        to constructor ( see the new() entry elsewhere in this document ).
+      $cfg->delete('mysql.user'); # deletes 'user' under [mysql] block
 
-    *   decoder() - sets a new decoder to be used in the form of coderef.
-        This decoder is used by read() ( see the read() entry elsewhere in
-        this document ), so should be set (if at all) before calling read().
-        Alternatively, you can define the decoder as an argument to
-        constructor ( see the new() entry elsewhere in this document ).
+  SAVING/WRITING CONFIGURATION FILES
 
-    *   autosave() - sets autosave value (see the new() entry elsewhere in
-        this document)
+    The above updates to the configuration values are in-memory operations.
+    They do not reflect in the file itself. To modify the files accordingly,
+    you need to call either "write()" or "save()" methods on the object:
 
-    *   dump() - dumps the object data structure either to STDOUT or into a
-        filename which can be defined as the first argument. Used for
-        debugging only
+      $cfg->write();
+
+    The above line writes the modifications to the configuration file.
+    Alternatively, you can pass a name to either write() or save() to
+    indicate the name of the file to create instead of modifying existing
+    configuration file:
+
+      $cfg->write("app.cfg.bak");
+
+    If you want the changes saved at all times, you can turn "autosave" mode
+    on by passing true value to $cfg->autosave(). It will make sure before
+    your program is terminated, all the configuration values are written
+    back to its file:
+
+      $cfg = new Config::Simple('aff.cfg');
+      $cfg->autosave(1);
+
+  CREATING CONFIGURATION FILES
+
+    Occasionally, your programs may want to create their own configuration
+    files on the fly, possibly from a user input. To create a configuration
+    file from scratch using Config::Simple, simply create an empty
+    configuration file object and define your syntax. You can do it by
+    either passing "syntax" option to new(), or by calling syntax() method.
+    Then play with param() method as you normally would. When you're done,
+    call write() method with the name of the configuration file:
+
+      $cfg = new Config::Simple(syntax=>'ini');
+      # or you could also do:
+      # $cfg->autosave('ini')
+
+      $cfg->param("mysql.dsn", "DBI:mysql:db;host=handalak.com");
+      $cfg->param("mysql.user", "sherzodr");
+      $cfg->param("mysql.pass", 'marley01');
+      $cfg->param("site.title", 'sherzodR "The Geek"');
+      $cfg->write("new.cfg");
+
+    This creates the a file "new.cfg" with the following content:
+
+      ; Config::Simple 4.1
+
+      [site]
+      title=sherzodR "The Geek"
+
+      [mysql]
+      pass=marley01
+      dsn=DBI:mysql:db;host=handalak.com
+      user=sherzodr
+
+    Neat, huh? Supported syntax keywords are "ini", "simple" or "http".
+    Currently there is no support for creating simplified ini-files.
+
+  MULTIPLE VALUES
+
+    Ever wanted to define array of values in your single configuration
+    variable? I have! That's why Config::Simple supports this fancy feature
+    as well. Simply separate your values with a comma:
+
+      Files hp.cgi, template.html, styles.css
+
+    Now param() method returns an array of values:
+
+      @files = $cfg->param("Files");
+      unlink $_ for @files;
+
+    If you want a comma as part of a value, enclose the value(s) in double
+    quotes:
+
+      CVSFiles "hp.cgi,v", "template.html,v", "styles.css,v"
+
+    In case you want either of the values to hold literal quote ("), you can
+    escape it with a backlash:
+
+      SiteTitle "sherzod \"The Geek\""
+
+  TIE INTERFACE
+
+    If OO style intimidates you, Config::Simple also supports tie()
+    interface. This interface allows you to tie() an ordinary Perl hash to
+    the configuration file. From that point on, you can use the variable as
+    an ordinary Perl hash.
+
+      tie %Config, "Config::Simple", 'app.cfg';
+
+      # Using %Config as an ordinary hash
+      print "Username is '$Config{User}'\n";
+      $Config{User} = 'sherzodR';
+
+    To access the method provided in OO styntax, you need to get underlying
+    Config::Simple object. You can do so with tied() function:
+
+      tied(%Config)->write();
+
+    WARNING: tie interface is experimental and not well tested yet. It also
+    doesn't perform all the hash manipulating operations of Perl. Let me
+    know if you encounter a problem.
+
+MISCELLANEOUS
+  CASE SENSITIVITY
+
+    By default, configuration file keys and values are case sensitive. Which
+    means, $cfg->param("User") and $cfg->param("user") are referring to two
+    different values. But it is possible to force Config::Simple to ignore
+    cases all together by enabling "-lc" switch while loading the library:
+
+      use Config::Simple ('-lc');
+
+    WARNING: If you call write() or save(), while working on "-lc" mode, all
+    the case information of the original file will be lost. So use it if you
+    know what you're doing.
+
+  USING QUOTES
+
+    Some people suggest if values consist of none alpha-numeric strings,
+    they should be enclosed in double quotes. Well, says them! Although
+    Config::Simple supports parsing such configuration files already, it
+    doesn't follow this rule while writing them. If you really need it to
+    generate such compatible configuration files, "-strict" switch is what
+    you need:
+
+      use Config::Simple '-strict';
+
+    Now, when you write the configuration data back to files, if values hold
+    any none alpha-numeric strings, they will be quoted accordingly. All the
+    double quotes that are part of the value will be escaped with a
+    backslash.
+
+EXCEPTION HANDLING
+    Config::Simple doesn't believe in dying that easily (unless you insult
+    it using wrong syntax). It leaves the decision to the programmer
+    implementing the library. You can use its error() - class method to
+    access underliying error message. Methods that require you to check for
+    their return values are read() and write(). If you pass filename to
+    new(), you will need to check its return value as well. They return any
+    true value indicating success, undef otherwise:
+
+      # following new always returns true:
+      $cfg = new Config::Simple();
+      # read() can fail:
+      $cfg->read('app.cfg') or die $cfg->error();
+
+      # following new() can fail:
+      $cfg = new Config::Simple('app.cfg') or die Config::Simple->error();
+
+      # write() may fail:
+      $cfg->write() or die $cfg->error();
+
+OTHER METHODS
+    as_string()
+        converts in-memory configuration file into a string, which can be
+        then written into a file. Used by write().
+
+    dump()
+        for debugging only. Returns string representation of the in-memory
+        object. Uses Data::Dumper.
+
+    error()
+TODO
+    *   Retaining comments while writing the configuration files back and/or
+        methods for manipulating comments. Everyone loves comments!
+
+    *   Support for Apache-like style configuration file. For now, if you
+        want this functionality, checkout the Config::General manpage
+        instead.
+
+BUGS
+    Submit bugs to Sherzod B. Ruzmetov <sherzodr@cpan.org>
 
 CREDITS
-    Following people contributed with patches and/or suggestions to the
-    Config::Simple. In chronological order:
-
     Michael Caldwell (mjc@mjcnet.com)
-        Added witespace support in the configuration files, which enables
-        custom identation
+        whitespace support, "-lc" switch
 
     Scott Weinstein (Scott.Weinstein@lazard.com)
-        Fixed the bugs in the TIEHASH method.
+        bug fix in TIEHASH
 
     Ruslan U. Zakirov <cubic@wr.miee.ru>
-        Default namespace suggestion and patch.
-
-    Adam Kennedy <cpan@ali.as>
-        Added a write_string() method, for getting the file as a string. Fix
-        for the case when the value is ''
-
-    Gavin Brown <gavin.brown@centralnic.com>
-        Proposed quoted values feature. This made configuration files
-        created by Config::Simple compatible with those expected by PHP's
-        parse_ini_file() function.
-
-AUTHOR
-    Config::Simple is written and maintained by Sherzod Ruzmetov
-    <sherzodr@cpan.org>
+        Default name space suggestion and patch
 
 COPYRIGHT
-        This library is a free software, and can be modified and redistributed
-        under the same terms as Perl itself.
+      Copyright (C) 2002-2003 Sherzod B. Ruzmetov.
 
-SEE ALSO
-    the Config::General manpage
+      This software is free library. You can modify and/or distribute it
+      under the same terms as Perl itself
+
+AUTHOR
+      Sherzod B. Ruzmetov E<lt>sherzodr@cpan.orgE<gt>
+      URI: http://author.handalak.com
 

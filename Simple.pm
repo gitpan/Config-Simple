@@ -1,14 +1,17 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.17 2003/02/21 08:03:14 sherzodr Exp $
+# $Id: Simple.pm,v 3.22 2003/02/21 23:07:31 sherzodr Exp $
 
 use strict;
+# uncomment the following line while debugging. Otherwise,
+# it's too slow for production environment
+#use diagnostics;
 use Carp;
 use Fcntl (':DEFAULT', ':flock');
 use Text::ParseWords 'parse_line';
 use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 
-$VERSION   = '4.2';
+$VERSION   = '4.3';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -23,7 +26,7 @@ sub import {
 # delimiter used by Text::ParseWords::parse_line()
 sub READ_DELIM () { return '\s*,\s*' }
 
-# delimited used by as_string()
+# delimiter used by as_string()
 sub WRITE_DELIM() { return ', '      }
 sub DEBUG      () { 0 }
 
@@ -39,13 +42,11 @@ sub new {
     _DATA           => {},
     _SYNTAX         => undef,
     _SUB_SYNTAX     => undef,
-    _ARGS           => {}
+    _ARGS           => {},
+    _OO_INTERFACE   => 1,
   };
-
-
   bless ($self, $class);
-  $self->_init(@_);
-
+  $self->_init(@_) or return;
   return $self;
 }
 
@@ -55,7 +56,7 @@ sub new {
 sub DESTROY {
   my $self = shift;
   
-  # if it was an autosave mode, write the changes
+  # if it was an auto save mode, write the changes
   # back. Currently it doesn't quite care if they
   # were modified or not.
   if ( $self->autosave() ) {
@@ -72,24 +73,20 @@ sub _init {
 
   if ( @_ == 1 ) {
     return $self->read($_[0]);
-
   } elsif ( @_ % 2 ) {
     croak "new(): Illegal arguments detected";
-
   } else {
     $self->{_ARGS} = { @_ };
-
   }
-
   # If filename was passed, call read()
   if ( exists ($self->{_ARGS}->{filename}) ) {
-    $self->read( $self->{_ARGS}->{filename} );
+    return $self->read( $self->{_ARGS}->{filename} );
   }
-
   # if syntax was given, call syntax()
   if ( exists $self->{_ARGS}->{syntax} ) {
     $self->syntax($self->{_ARGS}->{syntax});
   }
+  return 1;
 }
 
 
@@ -119,25 +116,38 @@ sub syntax {
 sub read {
   my ($self, $file) = @_;
 
-  if ( defined $self->{_FH} ) {
-    croak "Opened file handle detected. If you're trying to parse another file, close it first.";
+  if ( defined $self->{_FILE_HANDLE} ) {
+    croak "Open file handle detected. If you're trying to parse another file, close() it first.";
   }
   unless ( $file ) {
     croak "Usage: OBJ->read(\$file_name)";
   }
-  sysopen(FH, $file, O_RDWR|O_CREAT, 0600) or croak "Couldn't read '$file': $!";
-
+  unless ( sysopen(FH, $file, O_RDONLY) ) {
+    $self->error("Couldn't read '$file': $!");
+    return undef;
+  }
   $self->{_FILE_NAME}   = $file;
   $self->{_FILE_HANDLE} = \*FH;
-  $self->{_SYNTAX} = $self->guess_syntax();
+  $self->{_SYNTAX} = $self->guess_syntax(\*FH) or return undef;
 
   # call respective parsers
-  $self->{_SYNTAX} eq 'ini'     and $self->parse_ini_file();
-  $self->{_SYNTAX} eq 'simple'  and $self->parse_cfg_file();
-  $self->{_SYNTAX} eq 'http'    and $self->parse_http_file();
+  
+  $self->{_SYNTAX} eq 'ini'     and return $self->parse_ini_file(\*FH);
+  $self->{_SYNTAX} eq 'simple'  and return $self->parse_cfg_file(\*FH);
+  $self->{_SYNTAX} eq 'http'    and return $self->parse_http_file(\*FH);
 }
 
 
+sub close {
+  my $self = shift;
+
+  my $fh = $self->{_FILE_HANDLE} or return;
+  unless ( close($fh) ) {
+    $self->error("couldn't close the file: $!");
+    return undef;
+  }  
+  return 1;
+}
 
 # tries to guess the syntax of the configuration file.
 # returns 'ini', 'simple' or 'http'.
@@ -147,13 +157,17 @@ sub guess_syntax {
   unless ( defined $fh ) {
     $fh = $self->{_FILE_HANDLE} or die "'_FILE_HANDLE' is not defined";
   }
-  seek($fh, 0, 0) or croak "Couldn't seek($fh, 0, 0): $!";
+  unless ( seek($fh, 0, 0) ) {
+    $self->error("Couldn't seek($fh, 0, 0): $!");
+    return undef;
+  }
 
   # now we keep reading the file line by line untill we can identify the
   # syntax
   verbose("Trying to guess the file syntax...");
+  my ($syntax, $sub_syntax);
   while ( <$fh> ) {
-    # skipping emptpy lines and comments. They don't tell much anyways
+    # skipping empty lines and comments. They don't tell much anyway
     /^(\n|\#|;)/ and next;
 
     # If there's no alpha-numeric value in this line, ignore it
@@ -163,24 +177,29 @@ sub guess_syntax {
     chomp();
 
     # If there's a block, it is an ini syntax
-    /^\s*\[\s*[^\]]+\s*\]\s*$/  and verbose("'$_'-ini style"), return 'ini';
+    /^\s*\[\s*[^\]]+\s*\]\s*$/  and $syntax = 'ini', last;
 
-    # If we can read key/value pairs seperated by '=', it still
+    # If we can read key/value pairs separated by '=', it still
     # is an ini syntax with a default block assumed
-    /^\s*[^=]+\s*=\s*.*\s*$/    and $self->{_SUB_SYNTAX} = 'simple-ini', return 'ini';
+    /^\s*[^=]+\s*=\s*.*\s*$/    and $syntax = 'ini', $self->{_SUB_SYNTAX} = 'simple-ini', last;
 
-    # If we can read key/value pairs seperated by ':', it is an
+    # If we can read key/value pairs separated by ':', it is an
     # http syntax
-    /^\s*[\w-]+\s*:\s*.*\s*$/   and return 'http';
+    /^\s*[\w-]+\s*:\s*.*\s*$/   and $syntax = 'http', last;
 
-    # If we can read key/value pairs seperated by just whitespase,
+    # If we can read key/value pairs separated by just whites,
     # it is a simple syntax.
-    /^\s*[\w-]+\s+.*$/          and return 'simple';
-
-    # If we came this far, we're still struggling to figure
-    # out the syntax. Just throw an exception:
-    croak "Couldn't guess file syntax";
+    /^\s*[\w-]+\s+.*$/          and $syntax = 'simple', last;    
   }
+
+  if ( $syntax ) {
+    return $syntax;
+  }
+
+  $self->error("Couldn't identify the syntax used");
+  return undef;
+    
+
 }
 
 
@@ -191,11 +210,7 @@ sub guess_syntax {
 
 sub parse_ini_file {
   my ($self, $fh) = @_;
-
-  unless ( defined $fh ) {
-    $fh = $self->{_FILE_HANDLE} or die "'_FILE_HANDLE' is not defined";
-  }
-
+  
   seek($fh, 0, 0) or croak "Couldn't seek($fh, 0, 0) in '$self->{_FILE_NAME}': $!";
 
   my $bn = $DEFAULTNS;
@@ -207,16 +222,17 @@ sub parse_ini_file {
     chomp();
     s/^\s+//g;
     s/\s+$//g;
-    # parsing the blockname:
+    # parsing the block name:
     /^\s*\[\s*([^\]]+)\s*\]$/       and $bn = lcase($1), next;
     # parsing key/value pairs
     /^\s*([^=]*\w)\s*=\s*(.*)\s*$/  and $data{$bn}->{lcase($1)}=[parse_line(READ_DELIM, 0, $2)], next;
     # if we came this far, the syntax couldn't be validated:
-    croak "Syntax error on line $. '$_'";
+    $self->error("Syntax error on line $. '$_'");
+    return undef;
   }
   $self->{_DATA} = \%data;
-  close($fh) or die $!;
-  return 1;
+  CORE::close($fh) or die $!;
+  return wantarray ? %data : \%data;
 }
 
 
@@ -236,6 +252,7 @@ sub parse_cfg_file {
     $fh = $self->{_FILE_HANDLE} or die "'_FILE_HANDLE' is not defined";
   }
   seek($fh, 0, 0) or croak "Couldn't seek($fh, 0, 0) in '$self->{_FILE_NAME}':$!";
+  my %data = ();
   while ( <$fh> ) {
     # skipping comments and empty lines:
     /^(\n|\#)/  and next;
@@ -244,12 +261,14 @@ sub parse_cfg_file {
     s/^\s+//g;
     s/\s+$//g;
     # parsing key/value pairs
-    /^\s*([\w-]+)\s+(.*)\s*$/ and $self->{_DATA}->{lcase($1)}=[parse_line(READ_DELIM, 0, $2)], next;
+    /^\s*([\w-]+)\s+(.*)\s*$/ and $data{lcase($1)}=[parse_line(READ_DELIM, 0, $2)], next;
     # if we came this far, the syntax couldn't be validated:
-    croak "Syntax error on line $.: '$_'";
+    $self->error("Syntax error on line $.: '$_'");
+    return undef;
   }
-  close($fh) or die $!;
-  return 1;
+  $self->{_DATA} = \%data;
+  CORE::close($fh) or die $!;
+  return wantarray ? %data : \%data;
 }
 
 
@@ -264,6 +283,7 @@ sub parse_http_file {
     $fh = $self->{_FILE_HANDLE} or die "'_FILE_HANDLE' is not defined";
   }
   seek($fh, 0, 0) or croak "Couldn't seek($fh, 0, 0) in '$self->{_FILE_NAME}':$!";
+  my %data = ();
   while ( <$fh> ) {
     # skipping comments and empty lines:
     /^(\n|\#)/  and next;
@@ -273,13 +293,14 @@ sub parse_http_file {
     s/^\s+//g;
     s/\s+$//g;
     # parsing key/value pairs:
-    /^\s*([\w-]+)\s*:\s*(.*)$/  and $self->{_DATA}->{lcase($1)}=[parse_line(READ_DELIM, 0, $2)], next;
+    /^\s*([\w-]+)\s*:\s*(.*)$/  and $data{lcase($1)}=[parse_line(READ_DELIM, 0, $2)], next;
     # if we came this far, the syntax couldn't be validated:
-    croak "Syntax error on line $.: '$_'";
+    $self->error("Syntax error on line $.: '$_'");
+    return undef;
   }
-
-  close($fh) or die $!;
-  return 1;
+  $self->{_DATA} = \%data;
+  CORE::close($fh) or die $!;
+  return wantarray ? %data : \%data;
 }
 
 
@@ -290,18 +311,13 @@ sub param {
   # If called with no arguments, return all the
   # possible keys
   unless ( @_ ) {
-    return keys %{$self->{_DATA}};
+    my $vars = $self->vars();
+    return keys %$vars;
   }
   # if called with a single argument, return the value
   # matching this key
   if ( @_ == 1) {
-    my $value = $self->get_param(@_) or return;
-    # If array has a single element, return it
-    if ( @{$value} == 1 ) {
-      return $value->[0];
-    }
-    # otherwise, return value depending on the context
-    return wantarray ? @{$value} : $value;
+    return $self->get_param(@_);    
   }
   # if we come this far, we were called with multiple
   # arguments. Go figure!
@@ -319,14 +335,16 @@ sub param {
   }
   if ( $args->{'-name'} ) {
     # OBJ->param(-name=>'...') syntax:
-    my $value = $self->get_param($args->{'-name'});
-     # If array has a single element, return it
-    if ( @{$value} == 1 ) {
-      return $value->[0];
-    }
-    # otherwise, return value depending on the context
-    return wantarray ? @{$value} : $value;
+    return $self->get_param($args->{'-name'});
+     
   }
+  if ( $args->{'-block'} && ($args->{'-values'} || $args->{'-value'}) ) {
+    return $self->set_block($args->{'-block'}, $args->{'-values'}||$args->{'-value'});
+  }
+  if ( $args->{'-block'} ) {
+    return $self->get_block($args->{'-block'});
+  }
+    
   if ( @_ % 2 ) {
     croak "param(): illegal syntax";
   }
@@ -351,18 +369,60 @@ sub get_param {
   # If it was an ini-style, we should first
   # split the argument into its block name and key
   # components:
+  my $rv = undef;
   if ( $syntax eq 'ini' ) {
     my ($block_name, $key) = $arg =~ m/^([^\.]+)\.(.*)$/;
     if ( $block_name && $key ) {
-      return $self->{_DATA}->{$block_name}->{$key};
-
+      $rv = $self->{_DATA}->{$block_name}->{$key};
+    } else {
+      $rv = $self->{_DATA}->{$DEFAULTNS}->{$arg};
     }
-    # if it really was an ini-styled file, probably simplified
-    # syntax was used. In this case we assumed $DEFAULTNS
-    # as the default blockname and treat $arg as the key name
-    return $self->{_DATA}->{$DEFAULTNS}->{$arg};
+  } else {
+    $rv = $self->{_DATA}->{$arg};
   }
-  return $self->{_DATA}->{$arg};
+
+  defined($rv) or return;
+
+  for ( my $i=0; $i < @$rv; $i++ ) {
+    $rv->[$i] =~ s/\\n/\n/g;
+  }  
+  return @$rv==1 ? $rv->[0] : (wantarray ? @$rv : $rv);
+}
+
+
+
+
+sub get_block {
+  my ($self, $block_name)  = @_;
+
+  unless ( $self->syntax() eq 'ini' ) {
+    croak "get_block() is supported only in 'ini' files";
+  }
+  my $rv = {};
+  while ( my ($k, $v) = %{$self->{_DATA}->{$block_name}} ) {
+    $v =~ s/\\n/\n/g;
+    $rv->{$k} = $v;
+  }
+  return $rv;
+}
+
+
+
+
+
+sub set_block {
+  my ($self, $block_name, $values) = @_;
+
+  unless ( $self->syntax() eq 'ini' ) {
+    croak "set_block() is supported only in 'ini' files";
+  }
+  my $processed_values = {};
+  while ( my ($k, $v) = each %$values ) {
+    $v =~ s/\n/\\n/g;
+    $processed_values->{$k} = [$v];
+  }
+
+  $self->{_DATA}->{$block_name} = $processed_values;
 }
 
 
@@ -372,7 +432,14 @@ sub get_param {
 sub set_param {
   my ($self, $key, $value) = @_;
 
-  my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is not defined";
+  my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is not defined";  
+  if ( ref($value) eq 'ARRAY' ) {
+    for (my $i=0; $i < @$value; $i++ ) {
+      $value->[$i] =~ s/\n/\\n/g;
+    }
+  } else {
+    $value =~ s/\n/\\n/g;
+  }
   unless ( ref($value) eq 'ARRAY' ) {
     $value = [$value];
   }
@@ -384,7 +451,7 @@ sub set_param {
     if ( $bn && $k ) {
       return $self->{_DATA}->{$bn}->{$k} = $value;
     }
-    # most likely the user is assuming default namespace then?
+    # most likely the user is assuming default name space then?
     # Let's hope!
     return $self->{_DATA}->{$DEFAULTNS}->{$key} = $value;
   }
@@ -442,12 +509,20 @@ sub write {
   my ($self, $file) = @_;
 
   $file ||= $self->{_FILE_NAME} or die "Neither '_FILE_NAME' nor \$filename defined";
-  sysopen(FH, $file, O_WRONLY|O_CREAT|O_TRUNC, 0600) or croak "Couldn't open '$file': $!";
+
+  unless ( sysopen(FH, $file, O_WRONLY|O_CREAT|O_TRUNC, 0600) ) {
+    $self->error("'$file' couldn't be opened for writing: $!");
+    return undef;
+  }
   unless ( flock(FH, LOCK_EX) ) {
-    croak "Couldn't lock $file: $!";
+    $self->error("'$file' couldn't be locked: $!");
+    return undef;
   }
   print FH $self->as_string();
-  close(FH) or die "Couldn't write into '$file': $!";
+  unless ( CORE::close(FH) ) {
+    $self->error("Couldn't write into '$file': $!");
+    return undef;
+  }
   return 1;
 }
 
@@ -455,7 +530,6 @@ sub write {
 
 sub save {
   my $self = shift;
-
   return $self->write(@_);
 }
 
@@ -464,8 +538,8 @@ sub save {
 sub as_string {
   my $self = shift;
 
-  my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is not defiend";
-  my $sub_syntax = $self->{_SUB_SYNTAX};
+  my $syntax = $self->{_SYNTAX} or die "'_SYNTAX' is not defined";
+  my $sub_syntax = $self->{_SUB_SYNTAX} || '';
   my $STRING = undef;
   if ( $syntax eq 'ini' ) {
     $STRING .= "; Config::Simple $VERSION\n\n";
@@ -525,7 +599,7 @@ sub quote_values {
 sub error {
   my ($self, $msg) = @_;
 
-  if ( defined $msg ) {
+  if ( $msg ) {
     $errstr = $msg;
   }
   return $errstr;
@@ -544,7 +618,7 @@ sub dump {
   if ( defined $file ) {
     sysopen(FH, $file, O_WRONLY|O_CREAT|O_TRUNC, 0600) or die $!;
     print FH $d->Dump();
-    close(FH) or die $!;
+    CORE::close(FH) or die $!;
   }
   return $d->Dump();
 }
@@ -578,6 +652,11 @@ sub param_hash {
   my $self = shift;
 
   return ($self->vars);
+}
+
+sub errstr {
+  my $self = shift;
+  return $self->error(@_);
 }
 
 
@@ -639,7 +718,7 @@ Config::Simple - simple configuration file class
   $cfg = new Config::Simple('app.cfg');
   $user = $cfg->param("User");    # read the value  
   $cfg->param(User=>'sherzodr');  # update  
-  my %Config = $cfg->vars();      # load everyting into %Config
+  my %Config = $cfg->vars();      # load everything into %Config
   $cfg->write();                  # saves the changes to file
     
 
@@ -656,7 +735,7 @@ aspects of any software design. Config::Simple is the library to help
 you with it.
 
 Config::Simple is a class representing configuration file object. 
-It supports several configuration file syntaxes and tries
+It supports several configuration file syntax and tries
 to identify the file syntax to parse them accordingly. Library supports
 parsing, updating and creating configuration files. 
 
@@ -664,20 +743,20 @@ parsing, updating and creating configuration files.
 
 Keeping configurable variables in your program source code is ugly, really.
 And for people without much of a programming experience, configuring
-your progarms is like performing black magick. Besides, if you need to
+your programs is like performing black magic. Besides, if you need to
 access these values from within multiple files, or want your programs
 to be able to update configuration files, you just have to store them in 
-an external file. That's where Config::Simple comes into play, makeing it
+an external file. That's where Config::Simple comes into play, making it
 very easy to read and write configuration files.
 
-If you have never used configuration files before, here is a briefe
-overview of various syntaxes to choose from.
+If you have never used configuration files before, here is a brief
+overview of various syntax to choose from.
 
 =head2 SIMPLE CONFIGURATION FILE
 
 Simple syntax is what you need for most of your projects. These
 are, as the name asserts, the simplest. File consists of key/value
-pairs, delimited by nothing but whitespace. Keys (variables) should
+pairs, delimited by nothing but white space. Keys (variables) should
 be strictly alpha-numeric with possible dashes (-). Values can hold
 any arbitrary text. Here is an example of such a configuration file:
 
@@ -689,9 +768,9 @@ line with other configuration data.
 
 =head2 HTTP-LIKE SYNTAX
 
-This format of seperating key/value pairs is used by HTTP messages.
-Each key/value is seperated by semi-colon (:). Keys are alphanumeric
-strings with possible '-'. Values can be any artibtrary text:
+This format of separating key/value pairs is used by HTTP messages.
+Each key/value is separated by semi-colon (:). Keys are alphanumeric
+strings with possible '-'. Values can be any arbitrary text:
 
 Example:
 
@@ -717,14 +796,14 @@ equal (=) sign. Blocks are declared on their own lines enclosed in
   KEY1=VALUE1
   KEY2=VALUE2
 
-Your Winamp 2.x playlist is an example of such a configuration file.
+Your Winamp 2.x play list is an example of such a configuration file.
 
 This is the perfect choice if you need to organize your configuration
 file into categories:
 
   [site]
   url="http://www.handalak.com"
-  title="Website of a \"Geek\""
+  title="Web site of a \"Geek\""
   author=sherzodr
 
   [mysql]  
@@ -755,7 +834,7 @@ to the constructor new() while initializing the object:
   $cfg = new Config::Simple('app.cfg');
 
 The above line reads and parses the configuration file accordingly.
-It tries to guess which syntax is used by pasing the file to guess_syntax() method.
+It tries to guess which syntax is used by parsing the file to guess_syntax() method.
 Alternatively, you can create an empty object, and only then read the configuration file in:
 
   $cfg = new Config::Simple();
@@ -765,23 +844,23 @@ As in the first example, read() also calls guess_syntax() method on the file.
 
 If, for any reason, it fails to guess the syntax correctly (which is less likely),
 you can try to debug by using its guess_syntax() method. It expects
-filehandle for a  configuration file and returns the name of a syntax. Return
+file handle for a  configuration file and returns the name of a syntax. Return
 value is one of "ini", "simple" or "http".
 
   $cfg = new Config::Simple();
 
   open(FH, "app.cfg");
-  printf("This file uses '%s' syntax\n", $cfg->quess_syntax(\*FH));
+  printf("This file uses '%s' syntax\n", $cfg->guess_syntax(\*FH));
 
 =head2 ACCESSING VALUES
 
-After you read the configuration file in succesfully, you can use param() 
+After you read the configuration file in successfully, you can use param() 
 method to access the configuration values. For example:
 
   $user = $cfg->param("User");
 
 will return the value of "User" from either simple configuration file, or
-http-styled configuration as well as simplified ini-files. To acccess the
+http-styled configuration as well as simplified ini-files. To access the
 value from a traditional ini-file, consider the following syntax:
 
   $user = $cfg->param("mysql.user");
@@ -798,7 +877,7 @@ used, returns all the values either as hashref or hash:
   # If it was a traditional ini-file:
   print "Username: $Config{'mysql.user'}";
 
-If you call vars() in scalar context, you will end up with a refrence to a hash:
+If you call vars() in scalar context, you will end up with a reference to a hash:
 
   my $Config = $cfg->vars();
   print "Username: $Config->{User}";
@@ -820,6 +899,10 @@ to add a new "[session]" block to your ini-file, assuming this block doesn't alr
 exist:
 
   $cfg->param("session.life", "+1M");
+
+You can also delete values calling delete() method with the name of the variable:
+
+  $cfg->delete('mysql.user'); # deletes 'user' under [mysql] block
 
 
 =head2 SAVING/WRITING CONFIGURATION FILES
@@ -846,7 +929,7 @@ is terminated, all the configuration values are written back to its file:
 =head2 CREATING CONFIGURATION FILES
 
 Occasionally, your programs may want to create their own configuration files
-on the fly, possibly from a user intput. To create a configuration file from
+on the fly, possibly from a user input. To create a configuration file from
 scratch using Config::Simple, simply create an empty configuration file object
 and define your syntax. You can do it by either passing "syntax" option to new(),
 or by calling syntax() method. Then play with param() method as you normally would.
@@ -880,7 +963,7 @@ there is no support for creating simplified ini-files.
 =head2 MULTIPLE VALUES
 
 Ever wanted to define array of values in your single configuration variable? I have!
-That's why Config::Simple supports this fancy feature as well. Simply seperate your values
+That's why Config::Simple supports this fancy feature as well. Simply separate your values
 with a comma:
 
   Files hp.cgi, template.html, styles.css
@@ -899,10 +982,33 @@ escape it with a backlash:
 
   SiteTitle "sherzod \"The Geek\""
 
-=head1 CASE SENSITIVITY
+=head2 TIE INTERFACE
+
+If OO style intimidates you, Config::Simple also supports tie() interface.
+This interface allows you to tie() an ordinary Perl hash to the configuration file.
+From that point on, you can use the variable as an ordinary Perl hash. 
+
+  tie %Config, "Config::Simple", 'app.cfg';
+
+  # Using %Config as an ordinary hash
+  print "Username is '$Config{User}'\n";
+  $Config{User} = 'sherzodR';
+
+
+To access the method provided in OO styntax, you need to get underlying Config::Simple
+object. You can do so with tied() function:
+  
+  tied(%Config)->write();
+
+WARNING: tie interface is experimental and not well tested yet. It also doesn't perform
+all the hash manipulating operations of Perl. Let me know if you encounter a problem.
+
+=head1 MISCELLANEOUS
+
+=head2 CASE SENSITIVITY
 
 By default, configuration file keys and values are case sensitive. Which means,
-$cfg->param("User") and $cfg->param("user") are refering to two different values.
+$cfg->param("User") and $cfg->param("user") are referring to two different values.
 But it is possible to force Config::Simple to ignore cases all together by enabling
 C<-lc> switch while loading the library:
 
@@ -911,7 +1017,7 @@ C<-lc> switch while loading the library:
 WARNING: If you call write() or save(), while working on C<-lc> mode, all the case
 information of the original file will be lost. So use it if you know what you're doing.
 
-=head1 USING QUOTES
+=head2 USING QUOTES
 
 Some people suggest if values consist of none alpha-numeric strings, they should be
 enclosed in double quotes. Well, says them! Although Config::Simple supports parsing
@@ -924,7 +1030,45 @@ switch is what you need:
 Now, when you write the configuration data back to files, if values hold any none alpha-numeric
 strings, they will be quoted accordingly. All the double quotes that are part of the
 value will be escaped with a backslash.
-  
+
+=head2 EXCEPTION HANDLING
+
+Config::Simple doesn't believe in dying that easily (unless you insult it using wrong syntax).
+It leaves the decision to the programmer implementing the library. You can use its error() -
+class method to access underliying error message. Methods that require you to check
+for their return values are read() and write(). If you pass filename to new(), you will
+need to check its return value as well. They return any true value indicating success,
+undef otherwise:
+
+  # following new always returns true:
+  $cfg = new Config::Simple();
+  # read() can fail:
+  $cfg->read('app.cfg') or die $cfg->error();
+
+  # following new() can fail:
+  $cfg = new Config::Simple('app.cfg') or die Config::Simple->error();
+
+  # write() may fail:
+  $cfg->write() or die $cfg->error();
+
+=head2 OTHER METHODS
+
+=over 4
+
+=item as_string()
+
+converts in-memory configuration file into a string, which can be then written
+into a file. Used by write().
+
+=item dump()
+
+for debugging only. Returns string representation of the in-memory object. Uses
+Data::Dumper. 
+
+=item error()
+
+=back
+
 =head1 TODO
 
 =over 4
@@ -936,7 +1080,7 @@ manipulating comments. Everyone loves comments!
 
 =item *
 
-Support for  Apache-like style configuration file. For now, if you want this functinoality,
+Support for  Apache-like style configuration file. For now, if you want this functionality,
 checkout L<Config::General> instead.
 
 =back
@@ -959,7 +1103,7 @@ bug fix in TIEHASH
 
 =item Ruslan U. Zakirov <cubic@wr.miee.ru>
 
-Default namespace suggestion and patch
+Default name space suggestion and patch
 
 =back
 
@@ -967,13 +1111,17 @@ Default namespace suggestion and patch
 
   Copyright (C) 2002-2003 Sherzod B. Ruzmetov.
 
-  This softeware is free library. You can modify and/or distribute it
+  This software is free library. You can modify and/or distribute it
   under the same terms as Perl itself
 
 =head1 AUTHOR
 
   Sherzod B. Ruzmetov E<lt>sherzodr@cpan.orgE<gt>
   URI: http://author.handalak.com
+
+=head1 SEE ALSO 
+
+L<Config::General>, L<Config::Simple>, L<Config::Tiny>
 
 =cut
 

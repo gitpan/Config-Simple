@@ -1,16 +1,14 @@
+ Change log for Config::Simple 
 
-WHAT'S  NEW IN 4.2?
+4.3
+   * Better exception handling through Config::Simple->error()
+4.2
    * Using Fcntl.pm for more portable O_* values
-
-
-WHAT'S NEW in 4.0?
-
+4.0
   * Support for multiple values using comma (,);
   * Smart support for multiple configuration file syntaxes including 
     ini-files, simple config. as well as http-like style
   * quoting key values is optional
   * -lc switch to disable case sensitive parsing of blocknames and keys
   * much improved write()
-
-
 

@@ -29,13 +29,23 @@ ok($vars->{'Project\2.Name'} eq 'MPFCU');
 
 ok($cfg->param(-name=>'Project\100.Name', -value =>'Config::Simple'));
 ok($cfg->param(-name=>'Project\100.Names', -values=>['First Name', 'Second name']));
-
+ok($cfg->param('Project\100.NL', "Hello \nWorld"));
 ok($cfg->param('Project\1.Count', 9));
 
-#$cfg->dump('ini.dump');
+my @names = $cfg->param('Project\100.Names');
+my $names = $cfg->param('Project\100.Names');
+
+ok(ref($names) eq 'ARRAY');
+ok(@$names == 2);
+is(@names, 2); 
 
 
-$cfg->write();
+#$cfg->param(-block=>'newProject', -values=>{Name=>'Config::Simple::get_block()'});
+
+
+
+ok($cfg->write());
+
 
 
 
