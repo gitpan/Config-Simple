@@ -8,12 +8,11 @@ use File::Copy;
 use Fcntl qw(:DEFAULT :flock);
 
 require Exporter;
-
-use vars qw($VERSION @ISA @EXPORT $MD5 $errstr);
+use vars qw($VERSION @ISA @EXPORT $MD5 $errstr $LOCK_FILE);
 
 @ISA = qw(Exporter);
 
-$VERSION = "2.3";
+$VERSION = "2.4";
 
 eval {
     for ( @Fcntl::EXPORT ) {
@@ -54,6 +53,7 @@ sub new {
         },
         _cfg        => {},
         _checksum   => undef,
+        _tied_access => undef,
     };
 
     # deciding a name for a lock file
@@ -61,7 +61,7 @@ sub new {
         $self->{_options}{lockfile} = $self->{_options}{filename} . ".lock";
     }
 
-	$self->{_options}{filename} ||=$self->{_options}{_filename};
+    $self->{_options}{filename} ||=$self->{_options}{_filename};
 
 
     # creating a digest of the file...
@@ -108,7 +108,7 @@ sub _init {
         $after_dot  and $self->{'.'} .= $_, next;
         /^(;|\n|\#)/    and next;   # deal with \n and comments
         /^\[([^\]]+)\]/ and $title = $1, next;
-        /^([^=]+)=(.+)/ and $self->{_cfg}->{$title}{$1} = $2, next;
+        /^([^=]+)=(.+)/ and $self->{_cfg}->{$title}{$1} = $2, $self->{_named}{"$title.$1"} = $2, next;
         /^\./           and $after_dot = 1, next;   # don't read anything after the sole dot (.)
 
         chomp ($_);
@@ -122,6 +122,12 @@ sub _init {
 }
 
 
+
+sub _tied_access {
+    my $self = shift;
+
+    $self->{_tied_access} = shift;
+}
 
 
 sub _get_block {
@@ -169,6 +175,7 @@ sub _set_single_param {
 
     $value =~ s/\n/\\n/g;
     $self->{_cfg}->{$block}->{$key} = $value;
+    $self->{_named}->{"$block.$key"} = $value;
 
 }
 
@@ -297,7 +304,7 @@ sub write {
 
         close CHECKSUM;
 
-        if ( $self->{_checksum} ne $md5->hexdigest ) {
+        if ( ($self->{_checksum} ne $md5->hexdigest) and (not $self->{_tied_access} ) ) {
             carp "File's contents have been modified by the third party. Creating a backup copy of the old one";
             copy($file, $file . ".bk");
         }
@@ -405,6 +412,110 @@ sub dump {
     return Data::Dumper::Dumper($self);
 }
 
+
+
+
+
+
+package Config::Simple::Tie;
+
+require Tie::Hash;
+use vars qw(@ISA);
+
+@ISA = qw(Config::Simple Tie::StdHash);
+
+sub TIEHASH {
+    my $class = shift;
+    $class = ref($class) || $class;
+
+    my ($file, $mode, $check) = @_;
+
+    my $self = $class->Config::Simple::new(
+        filename=>$file||undef,
+        mode=>$mode||undef,
+        c=>$check||undef);
+
+    $self->_tied_access(1);
+
+    return $self;
+}
+
+
+
+sub DESTROY {
+    my $self = shift;
+
+    $self->_tied_access(0);
+}
+
+
+sub FETCH {
+    my $self = shift;
+    my $key = shift;
+
+    return $self->param($key);
+}
+
+
+sub STORE {
+    my $self = shift;
+    my $key = shift;
+    my $value = shift;
+
+    $self->param($key, $value);
+    return $self->write();
+}
+
+
+sub FIRSTKEY {
+    my $self = shift;
+
+    my $temp = keys %{$self->{_named}};
+    return scalar each %{$self->{_named}};
+}
+
+
+sub NEXTKEY {
+    my $self = shift;
+
+    return scalar each %{$self->{_named}};
+}
+
+
+sub DELETE {
+    my $self = shift;
+    my $name = shift;
+
+    my ($block, $key) = split /\./, $name;
+
+    delete $self->{_named}{$name};
+    delete $self->{_cfg}->{$block}->{$key};
+
+    $self->write();
+}
+
+
+
+
+sub EXISTS {
+    my $self = shift;
+
+    return exists $self->{_named}{shift};
+}
+
+
+
+sub CLEAR {
+    my $self = shift;
+
+    for (keys %{$self->{_named}} ) {
+        $self->{_named} = {};
+        $self->{_cfg} = {};
+    }
+}
+
+
+
 1;
 
 =pod
@@ -442,16 +553,67 @@ in your Perl application:
     print "MySQL host: ", $mysql->{host}, "\n";
     print "MySQL login: ", $mysql->{login}, "\n";
 
+    $cfg->write();
+
+    # Tied hash access...
+
+    tie my %Config, "Config::Simple::Tie", "app.cfg", O_RDONLY|O_CREAT or die $Config::Simple::errstr;
+
+    print "MySQL host: ", $Config{'mysql.host'}, "\n";
+
+    # setting new MySQL host value
+
+    $Config{'mysql.host'} = "new.localhost";    # this also updates the file
+    delete $Config{'mysql.RaiseError'};         # also updates the file
+
+
+
+
 
 =head1 NOTE
 
-This documentation refers to version 2.3 of Config::Simple. If you have a version
+This documentation refers to version 2.4 of Config::Simple. If you have a version
 older than this, please update it to the latest release ASAP (before you get burned).
 
 =head1 DESCRIPTION
 
 This Perl5 library  makes it very easy to parse INI-styled configuration files
-and create once on the fly. It optionally requires L<Digest::MD5|Digest::MD5> module
+and create once on the fly. It optionally requires L<Digest::MD5|Digest::MD5> module.
+
+C<Config::Simple> modules defines too classes, C<Config::Simple> and C<Config::Simple::Tie>.
+Latter will allow accessing the Configuration files via tied hash variables. In this case,
+modifications to the values of the hash will reflect in the configuration file right away.
+
+Unlike the case with C<Config::Simple::Tie>, C<Config::Simple> classes uses simple
+OO style, and requires calling method L<write()> if you want to update the contents of
+the file. Otherwise all the manipulations will take place in memory.
+
+Syntax for Config::Simple::Tie is:
+
+    tie my %Hash, "Config::Simple::Tie", "file.cfg" [,mode] [,c] or die $Config::Simple::errstr;
+
+We'll give you a briefe example that makes use of C<Config::Simple::Tie> and we'll continue on
+with C<Config::Simple> methods.
+
+    use Config::Simple;     # notice, you still have to load Config::Simple
+                            # not Config::Simple::Tie!!!
+
+    tie my %Config, "Config::Simple::Tie", "app.cfg" or die "app.cfg: $Config::Simple::errstr";
+
+    my $host = $Config{'mysql.host'};
+    my $login = $Config{'mysql.login'};
+
+    delete $Config{'mysql.password'};   # delets from the file as well
+
+    $Config{'mysql.login'} = "marley01"; # updates the file
+
+    untie %Config;          # destroys the connection;
+
+
+As you see, after you tie a hash variable to C<Config::Simple::Tie> class, you can
+use it as an ordinarry HASH, but in the background it will be dealing with a real
+file.
+
 
 =head2 CONFIGURATION FILE
 
@@ -510,6 +672,22 @@ you'll need to pass mode with your desired fcntl O_* constants to the constructo
     $config = new Config::Simple(filename=>"app.cfg", mode=>O_RDONLY|O_CREAT); # default
     $config = new Config::Simple(filename=>"app.cfg", mode=>O_EXCL);
 
+    # tied hash access method:
+
+    $config = tie %Config, "Config::Simple::Tie", "app.cfg", O_RDONLY;
+    $config = tie %Config, "Config::Simple::Tie", "app.cfg", O_RDONLY|O_CREAT;
+    $config = tie %Config, "Config::Simple::Tie", "app.cfg", O_EXCL;
+
+
+Note: in the tied hash access method, you can ignore the return value of tie() (which is a Config::Simple object).
+You will not be using it anyways. In case you'll need this at any time in the future, you
+can always aqcuire it by calling tied() Perl built-in function:
+
+    $config = tied(%Config);
+
+
+
+
 fcntl constants:
 
     +===========+============================================================+
@@ -523,6 +701,16 @@ fcntl constants:
     +-----------+------------------------------------------------------------+
     | O_EXCL    |  creates a file if it doesn't already exist                |
     +-----------+------------------------------------------------------------+
+
+
+
+
+
+
+
+
+
+
 
 =head1 METHODS
 

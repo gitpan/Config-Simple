@@ -1,7 +1,14 @@
 Changes
-Makefile.PL
 MANIFEST
+Makefile.PL
 README
 Simple.pm
-t/sample.cfg
 t/default.t
+t/sample.cfg
+t/tied.t
+t/CVS/Root
+t/CVS/Repository
+t/CVS/Entries
+CVS/Root
+CVS/Repository
+CVS/Entries

@@ -1,16 +1,30 @@
 
 RCS file: /home/sherzodr/CVS/modules/Config/Simple/Simple.pm,v
 Working file: Simple.pm
-head: 2.0
+head: 2.4
 branch:
 locks: strict
 access list:
-symbolic names:
-	start: 1.1.1.1
-	UltraCgis: 1.1.1
 keyword substitution: kv
-total revisions: 4;	selected revisions: 4
+total revisions: 8;	selected revisions: 8
 description:
+----------------------------
+revision 2.4
+date: 2002/03/25 23:45:21;  author: sherzodr;  state: Exp;  lines: +194 -6
+Config::Simple::Tie class has been defined, which implements tied hash access mechanism
+----------------------------
+revision 2.3
+date: 2002/03/22 22:04:08;  author: sherzodr;  state: Exp;  lines: +2 -3
+warnings pragma is removed to make it compatible with older versions of Perl
+----------------------------
+revision 2.2
+date: 2002/03/21 20:59:15;  author: sherzodr;  state: Exp;  lines: +3 -1
+Simple.pm
+----------------------------
+revision 2.1
+date: 2002/03/21 19:37:56;  author: sherzodr;  state: Exp;  lines: +69 -17
+c - switch is added to new() constructor which
+    turns on syntax checking. It's turned on by default
 ----------------------------
 revision 2.0
 date: 2002/03/21 17:01:23;  author: sherzodr;  state: Exp;  lines: +77 -50
