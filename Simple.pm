@@ -1,11 +1,11 @@
-package Config::Config;
+package Config::Simple;
 
 use 5.006;
 use strict;
 use FileHandle;
 use Carp;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 sub new {
     my $class = shift;
@@ -16,7 +16,7 @@ sub new {
         @_,
     };
 
-    my $fh = new FileHandle $self->{_filename}, O_RDONLY;
+    my $fh = new FileHandle $self->{_filename}, O_RDONLY | O_CREAT;
 
     unless (defined $fh) {
         croak "$self->{filename} couldn't be opened in O_RDONLY mode: $!";
@@ -52,6 +52,19 @@ sub param {
 }
 
 
+
+sub param_hash {
+    my $self = shift;
+
+    my %Config;
+
+    map {/^[^_]/ and $Config{$_} = $self->{$_}} keys %{$self};
+
+    return %Config;
+}
+
+
+
 sub set_param {
     my ($self, $key, $value) = @_;
 
@@ -75,7 +88,7 @@ sub write {
     }
 
 
-    my $fh = new FileHandle $file, O_CREAT|O_WRONLY;
+    my $fh = new FileHandle ">$file";
     unless (defined $fh) {
         croak "file $file couldn't be opened in O_CREAT|O_WRONLY mode: $!";
     }
@@ -180,6 +193,21 @@ to the bove create MyConfig.cfg file, the result would look like the following:
 
     author.first name
     author.last name
+
+
+It's also handy to use param_hash() method, which returns the key value pairs 
+which yrou can store into a hash variable right away. I believe one could do that
+by rolling a loop that uses param() like:
+
+    my %Config;
+    for ($cfg->param) {
+        $Config{$_} = $cfg->param($_);
+    }
+
+After the introduction of param_hash(), we can shorten the above process into:
+
+    my %Config = $cfg->param_hash();
+
 
 
 Enjoy!

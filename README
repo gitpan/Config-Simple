@@ -1,4 +1,4 @@
-.::Config::Simple::. version 0.01
+.::Config::Simple::. version 0.02
 ===================
 
 Config::Simple is used for reading and writing configuration files in the following format:
@@ -16,21 +16,21 @@ url=http://www.ultracgis.com
 
 INSTALLATION
 
-After downloading the destribution, you need to uncompress and unpack it. 
+After downloading the destribution, you need to uncompress and unpack it.
 In windows you could use WinZip. In *.nix you can use gzip to uncompress
-the file and use 'tar' to unpack it. You can combine the two steps into 
+the file and use 'tar' to unpack it. You can combine the two steps into
 one command like:
- 
-   % gzip -dc Config-Simple-0.01.tar.gz | tar -xof -
+
+   % gzip -dc Config-Simple-0.02.tar.gz | tar -xof -
 
 Then cd into the folder:
 
-   % cd Config-Simple-0.01
+   % cd Config-Simple-0.02
 
 And perform the following commands:
 
    perl Makefile.PL
-   make   
+   make
    make install
 
 DEPENDENCIES
@@ -50,11 +50,11 @@ module like:
 
 COPYRIGHT AND LICENCE
 
-This library is a free software. You can modify and destribute this 
-under the same condition as Perl itself. 
+This library is a free software. You can modify and destribute this
+under the same condition as Perl itself.
 
 
 AUTHOR
 
 Sherzod B. Ruzmetov, sherzodr@cpan.org
-	
+
