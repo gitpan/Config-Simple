@@ -1,6 +1,6 @@
 .:NAME:.
 
-Config::Simple - Simple Configuration Class
+Config::Simple - Simple Configuration File Class
 
 .:SYNPOSIS:.
 
@@ -24,6 +24,17 @@ in your Perl application:
 
     print "MySQL host: ", $config->param("mysql.host"), "\n";
     print "MySQL login: ", $config->param("mysql.login"), "\n";
+
+	# tied access method:
+
+	tie my %Config, "Config::Simple::Tie", "app.cfg", O_RDONLY|O_CREAT or die $Config::Simple::errstr;
+
+    print "MySQL host: ", $Config{'mysql.host'}, "\n";
+
+    # setting new MySQL host value
+
+    $Config{'mysql.host'} = "new.localhost";    # this also updates the file
+    delete $Config{'mysql.RaiseError'};         # also updates the file
 
 
 .:NOTE:.

@@ -1,14 +1,9 @@
 Changes
 MANIFEST
+MANIFEST.SKIP
 Makefile.PL
 README
 Simple.pm
 t/default.t
 t/sample.cfg
 t/tied.t
-t/CVS/Root
-t/CVS/Repository
-t/CVS/Entries
-CVS/Root
-CVS/Repository
-CVS/Entries

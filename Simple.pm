@@ -5,6 +5,7 @@ require 5.003;
 use strict;
 use Carp;
 use File::Copy;
+use IO::File;
 use Fcntl qw(:DEFAULT :flock);
 
 require Exporter;
@@ -12,7 +13,7 @@ use vars qw($VERSION @ISA @EXPORT $MD5 $errstr $LOCK_FILE);
 
 @ISA = qw(Exporter);
 
-$VERSION = "2.4";
+$VERSION = "2.5";
 
 eval {
     for ( @Fcntl::EXPORT ) {
@@ -66,14 +67,13 @@ sub new {
 
     # creating a digest of the file...
     if ( $MD5 and -e $self->{_options}{filename} ) {
-        open (CHECKSUM, '<' . $self->{_options}{filename}) or carp "Couldn't open $self->{_options}{filename}, $!";
-        flock (CHECKSUM, LOCK_SH|LOCK_NB) or carp "Couldn't acquire a lock on $self->{_options}{filename}, $!";
+        my $fh = new IO::File $self->{_options}->{filename}, O_RDONLY  or carp "Couldn't open $self->{_options}{filename}, $!";
+        flock ($fh, LOCK_SH|LOCK_NB) or carp "Couldn't acquire a lock on $self->{_options}{filename}, $!";
 
         my $md5 = Digest::MD5->new();
-        $md5->addfile(*CHECKSUM);
+        $md5->addfile(\$fh);
         $self->{_checksum} = $md5->hexdigest();
-
-        close CHECKSUM;
+        $fh->close();
     }
 
     bless $self => $class;
@@ -97,13 +97,13 @@ sub _init {
     my $file = $self->{_options}{filename};
 
 
-    sysopen(FH, $file, $mode) or $errstr = "Couldn't open $file, $!", return undef;
-    flock (FH, LOCK_SH|LOCK_NB) or $errstr = "Couldn't get lock on $file, $!", return undef;
+    my $fh = new IO::File ($file, $mode) or $errstr = "Couldn't open $file, $!", return undef;
+    flock ($fh, LOCK_SH|LOCK_NB) or $errstr = "Couldn't get lock on $file, $!", return undef;
 
     my $title = "";
     my $after_dot = 0;
     local $/ = "\n";
-    while ( <FH> ) {
+    while ( <$fh> ) {
 
         $after_dot  and $self->{'.'} .= $_, next;
         /^(;|\n|\#)/    and next;   # deal with \n and comments
@@ -117,7 +117,7 @@ sub _init {
 
     }
 
-    close FH;
+    $fh->close();
     return 1;
 }
 
@@ -289,34 +289,33 @@ sub write {
     my $self = shift;
 
     my $new_file = $_[0];
-    my $file = $self->{_options}{filename};
-    my $lock = $self->{_options}{lockfile};
+    my $file = $self->{_options}->{filename};
+    my $lock = $self->{_options}->{lockfile};
+    my $mode = $self->{_options}->{mode};
 
     # checking if anything was changed manually while
     # program was running...
     if ( $MD5 and !$new_file ) {
 
-        open (CHECKSUM, '<' . $self->{_options}{filename}) or carp "Couldn't open $self->{_options}{filename} for reading, $!";
-        flock (CHECKSUM, LOCK_SH|LOCK_NB) or carp "Couldn't acquire lock on $self->{_options}{filename}, $!";
-
+        my $checksum = new IO::File($self->{_options}->{filename}) or carp "Couldn't open $self->{_options}{filename} for reading, $!";
+        flock ($checksum, LOCK_SH|LOCK_NB) or carp "Couldn't acquire lock on $self->{_options}{filename}, $!";
         my $md5 = Digest::MD5->new();
-        $md5->addfile(*CHECKSUM);
-
-        close CHECKSUM;
+        $md5->addfile(\$checksum);
+        $checksum->close();
 
         if ( ($self->{_checksum} ne $md5->hexdigest) and (not $self->{_tied_access} ) ) {
             carp "File's contents have been modified by the third party. Creating a backup copy of the old one";
-            copy($file, $file . ".bk");
+            File::Copy::copy($file, $file . ".bk");
         }
     }
 
-    sysopen (LCK, $lock, O_RDONLY|O_CREAT) or $errstr = "Couldn't access $lock, $!", return undef;
-    flock(LCK, LOCK_EX) or $errstr = "Couldn't get exclusive lock on $lock, $!", return undef;
+    my $lck = new IO::File($lock, O_RDONLY|O_CREAT) or $errstr = "Couldn't access $lock, $!", return undef;
+    flock($lck, LOCK_EX) or $errstr = "Couldn't get exclusive lock on $lock, $!", return undef;
 
     $file = $new_file || $file;
 
-    open FH, '>' . $file or $errstr = "Couldn't open $file for writing, $!", return undef;
-    select (FH);
+    my $fh = new IO::File($file, O_RDWR|O_CREAT|O_TRUNC, 0751) or $errstr = "Couldn't truncate $file, $!", return undef;
+    select ($fh);
 
     print "; Maintained by Config::Simple/$VERSION\n";
     print "; Get the latest version from http://www.CPAN.org or your nearest CPAN mirror\n";
@@ -337,7 +336,9 @@ sub write {
     }
 
     select (STDOUT);
-    close FH;   close LCK;
+    $fh->close();
+    $lck->close();
+    unlink $lock;
 
 }
 
@@ -424,6 +425,10 @@ use vars qw(@ISA);
 
 @ISA = qw(Config::Simple Tie::StdHash);
 
+
+
+# TIEHASH patch submited by Scott.Weinstein@lazard.com
+# on Tue, 2 Apr 2002 13:47:34 -0500
 sub TIEHASH {
     my $class = shift;
     $class = ref($class) || $class;
@@ -431,11 +436,12 @@ sub TIEHASH {
     my ($file, $mode, $check) = @_;
 
     my $self = $class->Config::Simple::new(
-        filename=>$file||undef,
-        mode=>$mode||undef,
-        c=>$check||undef);
+        filename=>  $file,
+        mode    =>  $mode,
+        c       =>  $check
+    );
 
-    $self->_tied_access(1);
+    $self->_tied_access(1) if ($self);
 
     return $self;
 }
@@ -522,7 +528,7 @@ sub CLEAR {
 
 =head1 NAME
 
-Config::Simple - Simple Configuration Class
+Config::Simple - Simple Configuration File Class
 
 =head1 SYNPOSIS
 
@@ -572,8 +578,8 @@ in your Perl application:
 
 =head1 NOTE
 
-This documentation refers to version 2.4 of Config::Simple. If you have a version
-older than this, please update it to the latest release ASAP (before you get burned).
+This documentation refers to version 2.5 of Config::Simple. If you have a version
+older than this, please update it to the latest release.
 
 =head1 DESCRIPTION
 
@@ -592,7 +598,7 @@ Syntax for Config::Simple::Tie is:
 
     tie my %Hash, "Config::Simple::Tie", "file.cfg" [,mode] [,c] or die $Config::Simple::errstr;
 
-We'll give you a briefe example that makes use of C<Config::Simple::Tie> and we'll continue on
+We'll give you a brief example that makes use of C<Config::Simple::Tie> and we'll continue on
 with C<Config::Simple> methods.
 
     use Config::Simple;     # notice, you still have to load Config::Simple
@@ -603,7 +609,7 @@ with C<Config::Simple> methods.
     my $host = $Config{'mysql.host'};
     my $login = $Config{'mysql.login'};
 
-    delete $Config{'mysql.password'};   # delets from the file as well
+    delete $Config{'mysql.password'};   # deletes from the file as well
 
     $Config{'mysql.login'} = "marley01"; # updates the file
 
@@ -611,7 +617,7 @@ with C<Config::Simple> methods.
 
 
 As you see, after you tie a hash variable to C<Config::Simple::Tie> class, you can
-use it as an ordinarry HASH, but in the background it will be dealing with a real
+use it as an ordinary HASH, but in the background it will be dealing with a real
 file.
 
 
@@ -644,8 +650,8 @@ When you create Config::Simple object with $cfg = new Config::Simple(filename=>"
 syntax, it reads the above sample.cfg config file, parses the contents, and creates
 required data structure, which you can access through its public L<methods|/"METHODS">.
 
-In this documenation when I mention "name", I'll be refering to block name and key delimited with a dot (.).
-Forexample, from the above sample.cfg file, following names could be retrieved:
+In this documentation when I mention "name", I'll be referring to block name and key delimited with a dot (.).
+For example, from the above sample.cfg file, following names could be retrieved:
 block1.key1, block1.key2, block2.key1 and block2.key2 etc.
 
 Here is the configuration file that I use in most of my CGI applications, and I'll be using it
@@ -665,7 +671,7 @@ in most of the examples throughout this manual:
 
 by default Config::Simple exports C<O_RDONLY>, C<O_RDWR>, C<O_CREAT>, C<O_EXCL> L<fcnl.h|Fcntl> (file control) constants.
 When you create Config::Simple object by passing it a filename, it will try to read the file.
-If it fails it creats the file. This is a default behaviour. If you want to control this behavior,
+If it fails it creates the file. This is a default behavior. If you want to control this behavior,
 you'll need to pass mode with your desired fcntl O_* constants to the constructor:
 
     $config = new Config::Simple(filename=>"app.cfg", mode=>O_RDONLY);
@@ -680,8 +686,8 @@ you'll need to pass mode with your desired fcntl O_* constants to the constructo
 
 
 Note: in the tied hash access method, you can ignore the return value of tie() (which is a Config::Simple object).
-You will not be using it anyways. In case you'll need this at any time in the future, you
-can always aqcuire it by calling tied() Perl built-in function:
+You will not be using it any ways. In case you'll need this at any time in the future, you
+can always acquire it by calling tied() Perl built-in function:
 
     $config = tied(%Config);
 
@@ -693,7 +699,7 @@ fcntl constants:
     +===========+============================================================+
     | constant  |   description                                              |
     +===========+============================================================+
-    | O_RDONLY  |  opens a file for reading only, failes if doesn't exist    |
+    | O_RDONLY  |  opens a file for reading only, fails if doesn't exist    |
     +-----------+------------------------------------------------------------+
     | O_RDWR    |  opens a file for reading and writing                      |
     +-----------+------------------------------------------------------------+
@@ -721,7 +727,7 @@ fcntl constants:
 Constructor method. Requires filename to be present and picks up defaults for the rest
 if omitted. mode is used while opening the file, lockfile while updating the file.
 
-It returns Config::Simple object if successfull. If it fails, sets the error message to
+It returns Config::Simple object if successful. If it fails, sets the error message to
 $Config::Simple::errstr variable, and returns undef.
 
 mode can accept any of the above described L<fcntl|Fcntl> constants. Default is C<O_RDONLY E<verbar> O_CREAT>.
@@ -737,14 +743,14 @@ If you set it to 0 (false), those lines will just be ignored.
 If called without any arguments, returns the list of all the available blocks in the
 config. file.
 
-If called with arguments, this method suports several  different syntaxes,
-and we'll discuss them all seperately.
+If called with arguments, this method supports several  different syntax,
+and we'll discuss them all separately.
 
 =over 4
 
 =item param($name))
 
-returns the value of $name. $name is block and key seperated with a dot. For example,
+returns the value of $name. $name is block and key separated with a dot. For example,
 to retrieve the mysql login name from the app.cfg, we could use the following
 syntax:
 
@@ -752,7 +758,7 @@ syntax:
 
 =item param(-name=>$name)
 
-the same as L</"param($name)">
+the same as L<"param($name)">
 
 =item param($name, $value)
 
@@ -771,7 +777,7 @@ would create an [author] block with "f_name=Sherzod" key/value pair.
 
 =item param(-name=>$name, -value=>$value)
 
-the same as L</"param($name, $value)">
+the same as L<"param($name, $value)">
 
 =item param(-block=>$block)
 
@@ -801,7 +807,7 @@ the new values.
 
 =item set_param($name, $value)
 
-This method is provided for backward compatability with 1.x version of Config::Simple. It is identical
+This method is provided for backward compatibility with 1.x version of Config::Simple. It is identical
 to param($name, $value) syntax.
 
 =item param_hash()
@@ -823,7 +829,7 @@ Structure of %Config looks like the following:
 
 =item write([$new_filename])
 
-Notice, that all the above manipulations take place in the object's memory, ie, changes you
+Notice, that all the above manipulations take place in the object's memory, i.e., changes you
 make with param() and set_param() methods do not reflect in the actual config. file.
 To update the config file in the end, you'll need to call L<"write()"> method with no arguments.
 
@@ -835,7 +841,7 @@ If it detects that configuration file was updated by a third party while Config:
 on the file, it throws a harmless warning to STDERR, and will copy the original file to a new location
 with the .bk extension, and updates the configuration file with its own contents.
 
-L<"write()"> returns true if successfull, undef, otherwise. Error message can be accessed either
+L<"write()"> returns true if successful, undef, otherwise. Error message can be accessed either
 vi $Config::Simple::errstr variable, or by calling L<"error()"> method.
 
 =item error()
@@ -849,8 +855,18 @@ Returns the value of $Config::Simple::errstr
 Hopefully none.
 
 Please send them to my email if you detect any with a sample code
-that triggers that bug. Even if you don't have any, just let me konw that you are using it.
+that triggers that bug. Even if you don't have any, just let me know that you are using it.
 It just makes me feel good ;-)
+
+=head1 CREDITS
+
+=over 4
+
+=item Scott Weinstein (Scott.Weinstein@lazard.com)
+
+Submited the patch for the C<TIEHASH()> method in C<Config::Simple::Tie> class.
+
+=back
 
 =head1 COPYRIGHT
 

@@ -1,13 +1,25 @@
 
 RCS file: /home/sherzodr/CVS/modules/Config/Simple/Simple.pm,v
 Working file: Simple.pm
-head: 2.4
+head: 2.6
 branch:
 locks: strict
 access list:
+symbolic names:
+	start: 1.1.1.1
+	UltraCgis: 1.1.1
 keyword substitution: kv
-total revisions: 8;	selected revisions: 8
+total revisions: 10;	selected revisions: 10
 description:
+----------------------------
+revision 2.6
+date: 2002/04/07 19:19:01;  author: sherzodr;  state: Exp;  lines: +66 -50
+sysopen and open functions have been replaced
+with IO::File methods...
+----------------------------
+revision 2.5
+date: 2002/03/27 15:33:33;  author: sherzodr;  state: Exp;  lines: +2 -2
+$VERSION variable fixed in Simple.pm
 ----------------------------
 revision 2.4
 date: 2002/03/25 23:45:21;  author: sherzodr;  state: Exp;  lines: +194 -6
