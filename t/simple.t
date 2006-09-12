@@ -7,11 +7,11 @@
 # change 'tests => 1' to 'tests => last_test_to_print';
 
 use strict;
-use Test;
+use Test::More;
 use FindBin '$RealBin';
 use File::Spec;
 BEGIN { 
-  plan tests => 8;
+  plan tests => 9;
 }
 
 require Config::Simple;
@@ -32,4 +32,6 @@ my $vars = $cfg->vars();
 ok($vars->{'MinImgWidth'} == 10);
 ok($cfg->param(-name=>'ProjectName', -value =>'Config::Simple'));
 ok($cfg->param(-name=>'ProjectNames', -values=>['First Name', 'Second name']));
+ok(($cfg->param('DBN') =~ m/DBI:/), $cfg->param('DBN'));
 ok($cfg->save);
+

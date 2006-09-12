@@ -1,5 +1,5 @@
-# Config::Simple 4.59
-# Tue Sep 12 15:13:43 2006
+# Config::Simple 4.58_01
+# Tue Sep 12 14:59:11 2006
 
 newValue Just a test
 Object _is_modified is working

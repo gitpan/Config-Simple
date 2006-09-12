@@ -1,5 +1,12 @@
  Change log for Config::Simple
-  $Date: 2005/02/10 18:57:16 $
+  $Date: 2006/09/12 19:15:04 $
+
+4.59    - Tuesday, September 12, 2006
+
+    * FIXED: If simple configuration file's first line consisted of
+      values containing '=' the guess_syntax() mistakenly identified
+      the syntax of the file as 'ini' as opposed to 'simple'. Test case
+      created. Thanks to Craig Manley to point this out.
 
 4.58    - Thursday, February 10, 2005
 
@@ -110,4 +117,4 @@
     * much improved write()
 
 
-$Revision: 3.32 $
+$Revision: 3.33 $

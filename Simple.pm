@@ -1,6 +1,6 @@
 package Config::Simple;
 
-# $Id: Simple.pm,v 3.55 2005/02/10 18:57:16 sherzodr Exp $
+# $Id: Simple.pm,v 3.57 2006/09/12 19:15:04 sherzodr Exp $
 
 use strict;
 # uncomment the following line while debugging. Otherwise,
@@ -13,7 +13,7 @@ use vars qw($VERSION $DEFAULTNS $LC $USEQQ $errstr);
 use AutoLoader 'AUTOLOAD';
 
 
-$VERSION   = '4.58';
+$VERSION   = '4.59';
 $DEFAULTNS = 'default';
 
 sub import {
@@ -181,7 +181,7 @@ sub read {
         return $self->{_DATA};
     }
 
-  die "Something went wrong. No supported configuration file syntax found";
+  die "Something went wrong. No supported configuration file syntax found. Either the file is of wrong syntax, or there is a bug in guess_syntax() method.";
 }
 
 
@@ -213,7 +213,7 @@ sub guess_syntax {
     return undef;
   }
 
-  # now we keep reading the file line by line untill we can identify the
+  # now we keep reading the file line by line until we can identify the
   # syntax
   verbose("Trying to guess the file syntax...");
   my ($syntax, $sub_syntax);
@@ -232,7 +232,7 @@ sub guess_syntax {
 
     # If we can read key/value pairs separated by '=', it still
     # is an ini syntax with a default block assumed
-    /^\s*[^=]+\s*=\s*.*\s*$/    and $syntax = 'ini', $self->{_SUB_SYNTAX} = 'simple-ini', last;
+    /^\s*[\w-]+\s*=\s*.*\s*$/    and $syntax = 'ini', $self->{_SUB_SYNTAX} = 'simple-ini', last;
 
     # If we can read key/value pairs separated by ':', it is an
     # http syntax
